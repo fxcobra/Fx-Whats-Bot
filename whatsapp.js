@@ -10,6 +10,7 @@ import Service from './models/Service.js';
 import { hasOrderableServices, getServiceBreadcrumb } from './serviceUtils.js';
 import { getActiveCurrency } from './currencyUtils.js';
 import { sendSMS } from './smsNotify.js';
+import * as mtnMomo from './mtnMomo.js';
 
 // Global state
 const userStates = new Map();
