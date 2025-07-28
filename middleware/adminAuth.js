@@ -1,32 +1,18 @@
 // Middleware to protect admin panel routes
+// RELAXED: Allow access if panelLoggedIn is set, regardless of WhatsApp connection
 export default function adminAuth(req, res, next) {
-  // Always check WhatsApp connection first
+  if (req.session && req.session.panelLoggedIn) return next();
+  // Legacy: If already logged in via session and WhatsApp is connected
   const sock = req.app.get('whatsappClient');
   const isWhatsAppConnected = !!(sock && sock.user);
-
-  // If WhatsApp is NOT connected, force logout
-  if (!isWhatsAppConnected) {
-    if (req.session) {
-      req.session.isAdmin = false;
-      req.session.destroy(() => {
-        return res.redirect('/admin/login');
-      });
-    } else {
-      return res.redirect('/admin/login');
-    }
-    return; // Prevent further execution
-  }
-
-  // If already logged in via session and WhatsApp is connected
-  if (req.session && req.session.isAdmin) return next();
-
+  if (req.session && req.session.isAdmin && isWhatsAppConnected) return next();
   // If WhatsApp just connected, grant session
   if (isWhatsAppConnected) {
     req.session.isAdmin = true;
     return next();
   }
-
   // Otherwise, redirect to login
   return res.redirect('/admin/login');
 }
+
 
