@@ -122,6 +122,7 @@ router.get('/logout', async (req, res) => {
 });
 
 // Protect all admin panel routes except login/logout
+// IMPORTANT: Move this AFTER login/logout routes so login is not protected by adminAuth
 router.use(adminAuth);
 
 // SMS settings utility
