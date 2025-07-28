@@ -128,9 +128,62 @@ router.use(adminAuth);
 import fs from 'fs';
 import path from 'path';
 const smsSettingsPath = path.resolve(process.cwd(), 'smsSettings.json');
+const momoSettingsPath = path.resolve(process.cwd(), 'momoSettings.json');
+
+// Utility to load MoMo settings
+function loadMomoSettings() {
+    try {
+        if (!fs.existsSync(momoSettingsPath)) {
+            fs.writeFileSync(momoSettingsPath, JSON.stringify({ environment: 'sandbox', apiUser: '', apiKey: '', subscriptionKey: '', currency: 'EUR' }, null, 2));
+        }
+        return JSON.parse(fs.readFileSync(momoSettingsPath, 'utf8'));
+    } catch (e) {
+        console.error('[Settings] Error loading momoSettings.json:', e);
+        return { environment: 'sandbox', apiUser: '', apiKey: '', subscriptionKey: '', currency: 'EUR' };
+    }
+}
+
+// Utility to save MoMo settings
+function saveMomoSettings(settings) {
+    try {
+        fs.writeFileSync(momoSettingsPath, JSON.stringify(settings, null, 2));
+        return true;
+    } catch (e) {
+        console.error('[Settings] Error saving momoSettings.json:', e);
+        return false;
+    }
+}
 
 // Admin settings page (GET)
 router.get('/settings', async (req, res) => {
+  let smsSettings = {};
+  let momoSettings = loadMomoSettings();
+  try {
+    if (fs.existsSync(smsSettingsPath)) {
+      smsSettings = JSON.parse(fs.readFileSync(smsSettingsPath, 'utf8'));
+    }
+  } catch { smsSettings = {}; }
+  const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
+  res.render('admin/settings', { currencies: [], quickReplies: [], smsSettings, smsAlert: null, currency: activeCurrency, momoSettings });
+});
+
+// Admin settings page (POST MoMo settings)
+router.post('/settings/momo', async (req, res) => {
+  const { environment, apiUser, apiKey, subscriptionKey, currency } = req.body;
+  const momoSettings = { environment, apiUser, apiKey, subscriptionKey, currency };
+  let success = null;
+  let error = null;
+  if (!environment || !apiUser || !apiKey || !subscriptionKey || !currency) {
+    error = 'All fields are required for MoMo settings.';
+  } else if (!['sandbox', 'production'].includes(environment)) {
+    error = 'Invalid environment selected.';
+  } else {
+    if (saveMomoSettings(momoSettings)) {
+      success = 'MTN MoMo settings saved successfully.';
+    } else {
+      error = 'Failed to save MTN MoMo settings.';
+    }
+  }
   let smsSettings = {};
   try {
     if (fs.existsSync(smsSettingsPath)) {
@@ -138,7 +191,16 @@ router.get('/settings', async (req, res) => {
     }
   } catch { smsSettings = {}; }
   const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
-  res.render('admin/settings', { currencies: [], quickReplies: [], smsSettings, smsAlert: null, currency: activeCurrency });
+  res.render('admin/settings', {
+    currencies: [],
+    quickReplies: [],
+    smsSettings,
+    smsAlert: null,
+    currency: activeCurrency,
+    momoSettings,
+    success,
+    error
+  });
 });
 
 // Admin settings page (POST SMS settings)

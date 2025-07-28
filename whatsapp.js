@@ -437,9 +437,48 @@ const handleMessage = async (message) => {
                     };
                     
                     console.log('Creating new order with data:', orderData);
-                    const order = new Order(orderData);
-                    
+                    let order = new Order(orderData);
                     await order.save();
+
+                    // --- MTN MoMo Payment Initiation ---
+                    let momoReferenceId = null;
+                    let momoPaymentStatus = 'unpaid';
+                    let momoPaymentLink = '';
+                    try {
+                        // Use user's phone number (MSISDN) from chatId (strip @s.whatsapp.net)
+                        const payerPhone = chatId.replace(/@s\.whatsapp\.net$/, '');
+                        // Import MoMo payment utility
+                        const { requestToPay } = await import('../mtnMomo.js');
+                        momoReferenceId = await requestToPay({
+                            amount: service.price,
+                            currency: process.env.MTN_MOMO_CURRENCY || 'EUR',
+                            payer: payerPhone,
+                            externalId: order._id.toString(),
+                            payerMessage: `Order #${order._id}`,
+                            payeeNote: `Fx Cobra X Order #${order._id}`
+                        });
+                        momoPaymentLink = `${process.env.PUBLIC_URL || 'https://yourdomain.com'}/payment/momo/${momoReferenceId}`;
+                        momoPaymentStatus = 'unpaid';
+                        // Save payment info to order
+                        order.payment = {
+                            method: 'mtn_momo',
+                            status: momoPaymentStatus,
+                            paymentLink: momoPaymentLink,
+                            referenceId: momoReferenceId
+                        };
+                        await order.save();
+                        // Send payment link to user
+                        await safeSendMessage(chatId, {
+                            text: `💳 Please complete your payment to confirm your order:\n\n🔗 Payment Link: ${momoPaymentLink}\n\nOnce payment is received, your order will be processed.\n\nReply 'paid' after you have paid, or type 'menu' to cancel.`
+                        });
+                    } catch (momoErr) {
+                        console.error('[MoMo] Payment initiation error:', momoErr);
+                        await safeSendMessage(chatId, {
+                            text: `⚠️ Failed to initiate payment with MTN MoMo. Please try again later or contact support.`
+                        });
+                        // Optionally mark order as failed or pending manual intervention
+                    }
+                    // --- End MoMo Payment Initiation ---
 
 // Send SMS notification to admin/recipient (do not block order flow)
 try {

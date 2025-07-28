@@ -21,7 +21,8 @@
     "node-fetch": "^3.3.2",
     "pino": "^9.7.0",
     "qrcode": "^1.5.4",
-    "qrcode-terminal": "^0.12.0"
+    "qrcode-terminal": "^0.12.0",
+    "uuid": "^11.1.0"
   },
   "engines": {
     "node": ">=16.0.0"

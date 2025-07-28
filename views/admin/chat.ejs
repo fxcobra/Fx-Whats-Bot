@@ -279,6 +279,22 @@
                                         <td><strong>Price:</strong></td>
                                         <td><span class="fw-bold text-success"><%= currency.symbol %><%= order.price %></span></td>
                                     </tr>
+                                    <% if (order.payment && order.payment.method === 'mtn_momo') { %>
+                                    <tr>
+                                        <td><strong>Payment:</strong></td>
+                                        <td>
+                                            <span class="badge bg-info text-dark">MTN MoMo</span>
+                                            <% if (order.payment.paymentLink) { %>
+                                                <br><a href="<%= order.payment.paymentLink %>" target="_blank" class="text-primary">View Payment Link</a>
+                                            <% } %>
+                                            <% if (order.payment.status) { %>
+                                                <br><span class="badge bg-<%= order.payment.status === 'paid' ? 'success' : (order.payment.status === 'failed' ? 'danger' : 'secondary') %>">
+                                                    <%= order.payment.status.charAt(0).toUpperCase() + order.payment.status.slice(1) %>
+                                                </span>
+                                            <% } %>
+                                        </td>
+                                    </tr>
+                                    <% } %>
                                     <tr>
                                         <td><strong>Status:</strong></td>
                                         <td>
