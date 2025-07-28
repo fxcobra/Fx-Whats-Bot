@@ -1,0 +1,16 @@
+run = "npm start"
+modules = ["nodejs-20"]
+
+[interpreter]
+command = [
+  "bash",
+  "-c",
+  "export DISPLAY=:1.0 && export PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser && npm install && node app.js",
+]
+
+[packages]
+chromium-browser = "*"
+
+[[ports]]
+localPort = 3000
+externalPort = 80
