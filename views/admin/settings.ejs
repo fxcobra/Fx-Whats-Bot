@@ -198,6 +198,45 @@ Reply with the number of your choice.</textarea>
             </div>
         </div>
 
+        <!-- MoMo Payment Settings management -->
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="card-title mb-0">
+                    <i class="fas fa-mobile-alt"></i> MTN MoMo Payment Settings
+                </h5>
+            </div>
+            <div class="card-body">
+                <form method="POST" action="/admin/settings/momo">
+                    <div class="row mb-3">
+                        <div class="col-md-4">
+                            <label class="form-label">Environment</label>
+                            <select class="form-select" name="environment" required>
+                                <option value="sandbox" <%= momoSettings && momoSettings.environment === 'sandbox' ? 'selected' : '' %>>Sandbox</option>
+                                <option value="production" <%= momoSettings && momoSettings.environment === 'production' ? 'selected' : '' %>>Production</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Currency</label>
+                            <input type="text" class="form-control" name="currency" value="<%= momoSettings && momoSettings.currency ? momoSettings.currency : '' %>" required>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">API User</label>
+                        <input type="text" class="form-control" name="apiUser" value="<%= momoSettings && momoSettings.apiUser ? momoSettings.apiUser : '' %>" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">API Key</label>
+                        <input type="text" class="form-control" name="apiKey" value="<%= momoSettings && momoSettings.apiKey ? momoSettings.apiKey : '' %>" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Subscription Key</label>
+                        <input type="text" class="form-control" name="subscriptionKey" value="<%= momoSettings && momoSettings.subscriptionKey ? momoSettings.subscriptionKey : '' %>" required>
+                    </div>
+                    <button class="btn btn-warning" type="submit">Save MTN MoMo Settings</button>
+                </form>
+            </div>
+        </div>
+
         <!-- SMS Settings management -->
         <div class="card mt-4">
             <div class="card-header">
