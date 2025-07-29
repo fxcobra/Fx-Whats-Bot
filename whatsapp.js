@@ -120,7 +120,7 @@ const handleMessage = async (message) => {
             userStates.delete(chatId);
             const currency = await getActiveCurrency();
             const services = await Service.find({ parentId: null });
-            let reply = 'Welcome to Fx Cobra X! Here are our services:\n';
+            let reply = 'Welcome to Fx Cobra X Services! Here are our services:\n';
             services.forEach((s, i) => { 
                 if (s.price && s.price > 0) {
                     reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`;
@@ -235,7 +235,7 @@ const handleMessage = async (message) => {
         if (!state) {
             // No existing orders - show welcome message
             const services = await Service.find({ parentId: null });
-            let reply = 'Welcome to Fx Cobra X! Here are our services:\n';
+            let reply = 'Welcome to Fx Cobra X Services! Here are our services:\n';
             services.forEach((s, i) => { 
                 reply += `${i+1}. ${s.name}\n`; 
             });
@@ -341,7 +341,7 @@ const handleMessage = async (message) => {
                 if (selectedProduct.price && selectedProduct.price > 0) {
                     // This is an orderable service
                     await safeSendMessage(chatId, { 
-                        text: `You selected: ${selectedProduct.name}\nPrice: $${selectedProduct.price.toFixed(2)}\n\nReply with 'order' to place an order or 'menu' to go back to main menu.` 
+                        text: `You selected: ${selectedProduct.name}\nPrice: ${currency.symbol}${selectedProduct.price.toFixed(2)}\n\nReply with 'order' to place an order or 'menu' to go back to main menu.` 
                     });
                     userStates.set(chatId, { 
                         step: 'order_confirmation', 
@@ -371,7 +371,7 @@ const handleMessage = async (message) => {
                         let reply = `You selected: ${selectedProduct.name}\n\nAvailable options:\n`;
                         allDisplayServices.forEach((s, i) => { 
                             if (s.price && s.price > 0) {
-                                reply += `${i+1}. ${s.name} - $${s.price.toFixed(2)}\n`; 
+                                reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`; 
                             } else {
                                 reply += `${i+1}. ${s.name} (Category)\n`;
                             }
@@ -452,7 +452,7 @@ const handleMessage = async (message) => {
                         const { requestToPay } = await import('../mtnMomo.js');
                         momoReferenceId = await requestToPay({
                             amount: service.price,
-                            currency: process.env.MTN_MOMO_CURRENCY || 'EUR',
+                            currency: process.env.MTN_MOMO_CURRENCY || 'GHS',
                             payer: payerPhone,
                             externalId: order._id.toString(),
                             payerMessage: `Order #${order._id}`,
@@ -524,7 +524,7 @@ try {
                         breadcrumb = [service.name || 'UNKNOWN SERVICE'];
                     }
                     await safeSendMessage(chatId, { 
-                        text: `✅ Order placed successfully!\n\n📋 Order ID: ${order._id}\n💼 Service: ${breadcrumb.join(' > ')}\n💰 Price: $${service.price}\n📊 Status: Pending\n\nYou will receive updates on your order status. Thank you for choosing Fx Cobra X!` 
+                        text: `✅ Order placed successfully!\n\n📋 Order ID: ${order._id}\n💼 Service: ${breadcrumb.join(' > ')}\n💰 Price: ${currency.symbol}${service.price}\n📊 Status: Pending\n\nYou will receive updates on your order status. Thank you for choosing Fx Cobra X!` 
                     });
                     
                     // Reset user state
@@ -553,11 +553,11 @@ try {
             if (normalizedText === 'close' || normalizedText === 'end' || normalizedText === 'done') {
                 await Order.findByIdAndUpdate(
                     orderId,
-                    { $set: { status: 'completed' } }
+                    { $set: { status: 'pending' } }
                 );
                 
                 await safeSendMessage(chatId, {
-                    text: `✅ Order #${orderId.toString().slice(-8)} has been marked as completed.\n\nThank you for your business! Type 'menu' to start a new order.`
+                    text: `✅ Order #${orderId.toString().slice(-8)} has been marked as pending.\n\nThank you for your business! Type 'menu' to start a new order.`
                 });
                 
                 userStates.delete(chatId);
@@ -569,7 +569,7 @@ try {
                 // Don't close the order, just reset the state
                 userStates.delete(chatId);
                 const services = await Service.find({ parentId: null });
-                let reply = 'Welcome to Fx Cobra X! Here are our services:\n';
+                let reply = 'Welcome to Fx Cobra X Services! Here are our services:\n';
                 services.forEach((s, i) => { 
                     reply += `${i+1}. ${s.name}\n`; 
                 });
