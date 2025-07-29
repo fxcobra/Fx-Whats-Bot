@@ -248,6 +248,24 @@ const handleMessage = async (message) => {
         
         // Handle service selection
         if (state.step === 'service_selection') {
+            // Back navigation
+            if (text.trim().toLowerCase() === 'back') {
+                await safeSendMessage(chatId, { text: 'You are at the main menu.' });
+                const services = await Service.find({ parentId: null });
+                userStates.set(chatId, { step: 'service_selection', services, navStack: [] });
+                let reply = 'Welcome to Fx Cobra X Services! Here are our services:\n';
+                const currency = await getActiveCurrency();
+                services.forEach((s, i) => {
+                    if (s.price && s.price > 0) {
+                        reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`;
+                    } else {
+                        reply += `${i+1}. ${s.name}\n`;
+                    }
+                });
+                reply += 'Reply with the number of your choice.';
+                await safeSendMessage(chatId, { text: reply });
+                return;
+            }
             const choice = parseInt(text);
             // Get active currency symbol for price display
             const currency = await getActiveCurrency();
@@ -290,11 +308,16 @@ const handleMessage = async (message) => {
                         });
                         reply += 'Reply with the number of your choice.';
                         
+                        reply += 'Reply with the number of your choice or type "back" to go to the previous menu.';
+                        // Push current state to navStack for back navigation
+                        let navStack = state.navStack || [];
+                        navStack = [...navStack, { step: 'service_selection', services: state.services }];
                         await safeSendMessage(chatId, { text: reply });
                         userStates.set(chatId, { 
                             step: 'product_selection', 
                             selectedService,
-                            subServices: allDisplayServices 
+                            subServices: allDisplayServices,
+                            navStack
                         });
                     } else if (!hasAnyOrderable) {
                         await safeSendMessage(chatId, { 
@@ -333,6 +356,44 @@ const handleMessage = async (message) => {
         }
         // Handle product selection
         else if (state.step === 'product_selection') {
+            // Back navigation
+            if (text.trim().toLowerCase() === 'back') {
+                const navStack = state.navStack || [];
+                if (navStack.length > 0) {
+                    const prev = navStack[navStack.length - 1];
+                    if (prev.step === 'service_selection') {
+                        let reply = 'Welcome to Fx Cobra X Services! Here are our services:\n';
+                        const currency = await getActiveCurrency();
+                        prev.services.forEach((s, i) => {
+                            if (s.price && s.price > 0) {
+                                reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`;
+                            } else {
+                                reply += `${i+1}. ${s.name}\n`;
+                            }
+                        });
+                        reply += 'Reply with the number of your choice.';
+                        await safeSendMessage(chatId, { text: reply });
+                        userStates.set(chatId, { ...prev, navStack: navStack.slice(0, -1) });
+                        return;
+                    }
+                } else {
+                    // No previous state, show main menu
+                    const services = await Service.find({ parentId: null });
+                    let reply = 'Welcome to Fx Cobra X Services! Here are our services:\n';
+                    const currency = await getActiveCurrency();
+                    services.forEach((s, i) => {
+                        if (s.price && s.price > 0) {
+                            reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`;
+                        } else {
+                            reply += `${i+1}. ${s.name}\n`;
+                        }
+                    });
+                    reply += 'Reply with the number of your choice.';
+                    await safeSendMessage(chatId, { text: reply });
+                    userStates.set(chatId, { step: 'service_selection', services, navStack: [] });
+                    return;
+                }
+            }
             // Ensure currency is defined for price formatting
             const currency = await getActiveCurrency();
             const choice = parseInt(text);
@@ -378,13 +439,16 @@ const handleMessage = async (message) => {
                                 reply += `${i+1}. ${s.name} (Category)\n`;
                             }
                         });
-                        reply += 'Reply with the number of your choice.';
-                        
+                        reply += 'Reply with the number of your choice or type "back" to go to the previous menu.';
+                        // Push current state to navStack for back navigation
+                        let navStack = state.navStack || [];
+                        navStack = [...navStack, { step: 'product_selection', selectedService: selectedProduct, subServices: state.subServices }];
                         await safeSendMessage(chatId, { text: reply });
                         userStates.set(chatId, { 
                             step: 'product_selection', 
                             selectedService: selectedProduct,
-                            subServices: allDisplayServices 
+                            subServices: allDisplayServices,
+                            navStack 
                         });
                     } else if (!hasAnyOrderable) {
                         await safeSendMessage(chatId, { 
