@@ -303,8 +303,6 @@ const handleMessage = async (message) => {
                                 reply += `${i+1}. ${s.name} (Category)\n`;
                             }
                         });
-                        reply += 'Reply with the number of your choice.';
-                        
                         reply += 'Reply with the number of your choice or type "back" to go to the previous menu.';
                         // Push current state to navStack for back navigation
                         let navStack = state.navStack || [];
