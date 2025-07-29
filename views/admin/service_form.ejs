@@ -1,4 +1,7 @@
-<% layout('layout', { activePage: "services" }) %>
+<%- include('../partials/header') %>
+<%- include('../partials/sidebar') %>
+<div class="main-content">
+
 
 
 <head>
@@ -205,5 +208,6 @@
             parentSelect.addEventListener('change', updatePriceFieldHelp);
         });
     </script>
+<%- include('../partials/footer') %>
 </body>
 

@@ -1,5 +1,8 @@
 
-<% layout('layout', { activePage: "settings" }) %>
+<%- include('../partials/header') %>
+<%- include('../partials/sidebar') %>
+<div class="main-content">
+
 
 <% var currencies = typeof currencies !== 'undefined' ? currencies : []; %>
 <% var quickReplies = typeof quickReplies !== 'undefined' ? quickReplies : []; %>
@@ -33,6 +36,7 @@
         }
     </style>
 </head>
+<%- include('../partials/footer') %>
 <body>
     <div class="container-fluid">
         <div class="row">

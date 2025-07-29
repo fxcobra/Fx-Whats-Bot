@@ -1,5 +1,8 @@
 
-<% layout('layout', { activePage: "dashboard" }) %>
+<%- include('../partials/header') %>
+<%- include('../partials/sidebar') %>
+<div class="main-content">
+
 
             <nav class="col-md-3 col-lg-2 d-md-block sidebar collapse">
                 <div class="position-sticky pt-3">
@@ -151,6 +154,7 @@
                             <th>Actions</th>
                         </tr>
                     </thead>
+                    <%- include('../partials/footer') %>
                     <tbody>
                         <% orders.slice(0, 10).forEach(order => { %>
                             <tr>
