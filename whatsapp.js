@@ -389,44 +389,7 @@ const handleMessage = async (message) => {
                     return;
                 }
             }
-            // Back navigation
-            if (text.trim().toLowerCase() === 'back') {
-                const navStack = state.navStack || [];
-                if (navStack.length > 0) {
-                    const prev = navStack[navStack.length - 1];
-                    if (prev.step === 'service_selection') {
-                        let reply = 'Welcome to Fx Cobra X Services! Here are our services:\n';
-                        const currency = await getActiveCurrency();
-                        prev.services.forEach((s, i) => {
-                            if (s.price && s.price > 0) {
-                                reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`;
-                            } else {
-                                reply += `${i+1}. ${s.name}\n`;
-                            }
-                        });
-                        reply += 'Reply with the number of your choice.';
-                        await safeSendMessage(chatId, { text: reply });
-                        userStates.set(chatId, { ...prev, navStack: navStack.slice(0, -1) });
-                        return;
-                    }
-                } else {
-                    // No previous state, show main menu
-                    const services = await Service.find({ parentId: null });
-                    let reply = 'Welcome to Fx Cobra X Services! Here are our services:\n';
-                    const currency = await getActiveCurrency();
-                    services.forEach((s, i) => {
-                        if (s.price && s.price > 0) {
-                            reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`;
-                        } else {
-                            reply += `${i+1}. ${s.name}\n`;
-                        }
-                    });
-                    reply += 'Reply with the number of your choice.';
-                    await safeSendMessage(chatId, { text: reply });
-                    userStates.set(chatId, { step: 'service_selection', services, navStack: [] });
-                    return;
-                }
-            }
+
             // Ensure currency is defined for price formatting
             const currency = await getActiveCurrency();
             // Only handle numeric choices here; 'back' is handled above
