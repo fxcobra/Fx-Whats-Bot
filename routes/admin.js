@@ -884,7 +884,6 @@ async function renderSettings(req, res) {
   let currencies = [];
   let quickReplies = [];
   let smsSettings = { apiKey: '', sender: '', recipient: '' };
-  let momoSettings = {};
   let error = req.session.error || null;
   let success = req.session.success || null;
   try {
@@ -895,21 +894,6 @@ async function renderSettings(req, res) {
     }
   } catch (e) {
     console.error('[Settings] Error loading currencies:', e);
-  }
-  // Load momoSettings from file
-  try {
-    const fs = await import('fs');
-    const path = await import('path');
-    const momoSettingsPath = path.resolve(process.cwd(), 'momoSettings.json');
-    if (fs.existsSync(momoSettingsPath)) {
-      momoSettings = JSON.parse(fs.readFileSync(momoSettingsPath, 'utf8'));
-    } else {
-      momoSettings = { environment: 'sandbox', apiUser: '', apiKey: '', subscriptionKey: '', currency: 'EUR' };
-    }
-  } catch (e) {
-    console.error('[Settings] Error loading momoSettings.json:', e);
-    momoSettings = { environment: 'sandbox', apiUser: '', apiKey: '', subscriptionKey: '', currency: 'EUR' };
-  }
     error = (error ? error + ' ' : '') + 'Failed to load currencies.';
   }
   try {
@@ -933,7 +917,8 @@ async function renderSettings(req, res) {
   }
   req.session.success = null;
   req.session.error = null;
-  res.render('admin/settings', { currencies, quickReplies, smsSettings, momoSettings, success, error });
+  res.render('admin/settings', { currencies, quickReplies, smsSettings, success, error });
+}
 router.get('/settings', renderSettings);
 
 // Save SMS settings
