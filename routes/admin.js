@@ -934,7 +934,6 @@ async function renderSettings(req, res) {
   req.session.success = null;
   req.session.error = null;
   res.render('admin/settings', { currencies, quickReplies, smsSettings, momoSettings, success, error });
-}
 router.get('/settings', renderSettings);
 
 // Save SMS settings
