@@ -333,6 +333,8 @@ const handleMessage = async (message) => {
         }
         // Handle product selection
         else if (state.step === 'product_selection') {
+            // Ensure currency is defined for price formatting
+            const currency = await getActiveCurrency();
             const choice = parseInt(text);
             if (choice && choice <= state.subServices.length) {
                 const selectedProduct = state.subServices[choice - 1];
