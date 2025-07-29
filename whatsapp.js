@@ -266,12 +266,9 @@ const handleMessage = async (message) => {
                 await safeSendMessage(chatId, { text: reply });
                 return;
             }
-            const choice = parseInt(text);
-            // Get active currency symbol for price display
-            const currency = await getActiveCurrency();
-
-            if (choice && choice <= state.services.length) {
-                const selectedService = state.services[choice - 1];
+            const choice = text.trim();
+            if (!isNaN(choice) && choice > 0 && choice <= state.services.length) {
+                const selectedService = state.services[parseInt(choice) - 1];
                 
                 // Get sub-services or products
                 const subServices = await Service.find({ parentId: selectedService._id });
