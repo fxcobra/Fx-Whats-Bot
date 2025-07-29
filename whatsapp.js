@@ -165,7 +165,7 @@ const handleMessage = async (message) => {
                 if (normalizedText === 'close' || normalizedText === 'end' || normalizedText === 'done') {
                     await Order.findByIdAndUpdate(
                         existingOrder._id,
-                        { $set: { status: 'completed' } }
+                        { $set: { status: 'pending' } }
                     );
                     
                     await safeSendMessage(chatId, {
@@ -835,7 +835,26 @@ export async function connectToWhatsApp(onSocketReady) {
     }
 }
 
-// Logout function: cleanly disconnect and clear sessionexport async function logoutWhatsApp() {    try {        if (sock && sock.logout) {            await sock.logout();        }        if (sock && sock.end) {            sock.end();        }        sock = null;        connectionState = 'closed';        // Remove session folder        if (fs.existsSync(AUTH_DIR)) {            fs.rmSync(AUTH_DIR, { recursive: true, force: true });            console.log('Session directory deleted for logout.');        }    } catch (err) {        console.error('Error during WhatsApp logout:', err);    }}
+// Logout function: cleanly disconnect and clear session
+export async function logoutWhatsApp() {
+    try {
+        if (sock && sock.logout) {
+            await sock.logout();
+        }
+        if (sock && sock.end) {
+            sock.end();
+        }
+        sock = null;
+        connectionState = 'closed';
+        // Remove session folder
+        if (fs.existsSync(AUTH_DIR)) {
+            fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+            console.log('Session directory deleted for logout.');
+        }
+    } catch (err) {
+        console.error('Error during WhatsApp logout:', err);
+    }
+}
 
 
 
