@@ -231,7 +231,7 @@ router.get('/dashboard', async (req, res) => {
   // Only completed orders for revenue
   const completedOrders = await Order.find({ status: 'completed' });
   const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
-  res.render('admin/dashboard', { orders: recentOrders, completedOrders, currency: activeCurrency, activePage: 'dashboard' });
+  res.render('admin/dashboard', { orders: recentOrders, completedOrders, currency: activeCurrency });
 });
 
 // Services management
@@ -267,7 +267,6 @@ router.get('/services', async (req, res) => {
   ]);
   const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
   res.render('admin/services', {
-    activePage: 'services',
     services,
     currency: activeCurrency,
     pagination: {
@@ -362,7 +361,7 @@ router.get('/services/new', async (req, res) => {
   // Get all services that can be parents (including existing submenus)
   const parentServices = await Service.find({});
   const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
-  res.render('admin/service_form', { service: {}, parentServices, currency: activeCurrency, activePage: 'services' });
+  res.render('admin/service_form', { service: {}, parentServices, currency: activeCurrency });
 });
 router.post('/services/new', async (req, res) => {
   try {
@@ -497,7 +496,6 @@ router.get('/orders', async (req, res) => {
     }
     const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
     res.render('admin/orders', {
-      activePage: 'orders',
       orders,
       currency: activeCurrency,
       formatPrice,
@@ -702,7 +700,6 @@ router.get('/orders/:id', validateObjectId, async (req, res) => {
 
     const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
     res.render('admin/chat', { 
-      activePage: 'orders',
       order: sortedOrder,
       error,
       success,
@@ -920,7 +917,7 @@ async function renderSettings(req, res) {
   }
   req.session.success = null;
   req.session.error = null;
-  res.render('admin/settings', { currencies, quickReplies, smsSettings, success, error, activePage: 'settings' });
+  res.render('admin/settings', { currencies, quickReplies, smsSettings, success, error });
 }
 router.get('/settings', renderSettings);
 
