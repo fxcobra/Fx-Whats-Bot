@@ -169,7 +169,7 @@ const handleMessage = async (message) => {
                     );
                     
                     await safeSendMessage(chatId, {
-                        text: `✅ Order #${existingOrder._id.toString().slice(-8)} has been marked as completed.\n\nThank you for your business! Type 'menu' to start a new order.`
+                        text: `✅ Order #${existingOrder._id.toString().slice(-8)} has been marked as pending.\n\nThank you for your business! Type 'menu' to start a new order.`
                     });
                     
                     userStates.delete(chatId);
