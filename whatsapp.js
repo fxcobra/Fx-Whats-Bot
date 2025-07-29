@@ -396,8 +396,9 @@ const handleMessage = async (message) => {
             }
             // Ensure currency is defined for price formatting
             const currency = await getActiveCurrency();
+            // Only handle numeric choices here; 'back' is handled above
             const choice = parseInt(text);
-            if (choice && choice <= state.subServices.length) {
+            if (!isNaN(choice) && choice > 0 && choice <= state.subServices.length) {
                 const selectedProduct = state.subServices[choice - 1];
                 
                 // Check if this is a category (no price) or an orderable service
