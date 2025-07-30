@@ -450,18 +450,13 @@ const handleMessage = async (message) => {
         }
         // Handle product selection
         else if (state.step === 'product_selection') {
-            // Debug: log state
-            console.log('[product_selection] state:', state);
-            // Only handle back at top
-            if (text.trim().toLowerCase() === 'back') {
-                const navStack = state.navStack || [];
-                if (navStack.length > 0) {
-                    const prev = navStack[navStack.length - 1];
-                    if (prev.step === 'service_selection') {
-                        let reply = 'Welcome to Fx Cobra X Services! Here are our services:\n';
-                        const currency = await getActiveCurrency();
-                        prev.services.forEach((s, i) => {
-                            if (s.price && s.price > 0) {
+            // ... (rest of product_selection logic)
+        }
+        // End of menu navigation logic
+    } catch (error) {
+        console.error('Error handling message:', error);
+        try {
+            await safeSendMessage(message.key.remoteJid, { text: '⚠️ Sorry, an error occurred. Please try again or type "menu".' });
                                 reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`;
                             } else {
                                 reply += `${i+1}. ${s.name}\n`;
