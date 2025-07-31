@@ -7,6 +7,8 @@ import fs from 'fs';
 import path from 'path';
 import Order from './models/Order.js';
 import Service from './models/Service.js';
+import QuickReply from './models/QuickReply.js';
+import Help from './models/Help.js';
 import { hasOrderableServices, getServiceBreadcrumb } from './serviceUtils.js';
 import { getActiveCurrency } from './currencyUtils.js';
 import { sendSMS } from './smsNotify.js';
@@ -312,7 +314,19 @@ const handleMessage = async (message) => {
             return;
         }
 
-        // 4. Handle 'menu' command to always show main menu
+                // 4. Handle 'help' command
+        if (lowerCaseText === 'help') {
+            try {
+                const help = await Help.findOneOrCreate();
+                await safeSendMessage(chatId, { text: help.content });
+            } catch (error) {
+                console.error('Error fetching help message:', error);
+                await safeSendMessage(chatId, { text: 'Sorry, I could not retrieve the help message at this time.' });
+            }
+            return;
+        }
+
+        // 5. Handle 'menu' command to always show main menu
         if (lowerCaseText === 'menu' || lowerCaseText === 'start') {
             await showMainMenu(chatId);
             return;

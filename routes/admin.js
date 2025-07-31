@@ -6,6 +6,7 @@ import Service from '../models/Service.js';
 import Order from '../models/Order.js';
 import Currency from '../models/Currency.js'; // Import Currency model
 import QuickReply from '../models/QuickReply.js'; // Import QuickReply model
+import Help from '../models/Help.js';
 import formatPrice from '../formatPrice.js';
 import adminAuth from '../middleware/adminAuth.js';
 import panelAuth, { verifyPanelLogin } from '../middleware/panelAuth.js';
@@ -165,7 +166,8 @@ router.get('/settings', async (req, res) => {
     }
   } catch { smsSettings = {}; }
   const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
-  res.render('admin/settings', { currencies: [], quickReplies: [], smsSettings, smsAlert: null, currency: activeCurrency, momoSettings });
+  const help = await Help.findOneOrCreate();
+  res.render('admin/settings', { currencies: [], quickReplies: [], smsSettings, smsAlert: null, currency: activeCurrency, momoSettings, help });
 });
 
 // Admin settings page (POST MoMo settings)
@@ -192,6 +194,7 @@ router.post('/settings/momo', async (req, res) => {
     }
   } catch { smsSettings = {}; }
   const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
+  const help = await Help.findOneOrCreate();
   res.render('admin/settings', {
     currencies: [],
     quickReplies: [],
@@ -199,9 +202,54 @@ router.post('/settings/momo', async (req, res) => {
     smsAlert: null,
     currency: activeCurrency,
     momoSettings,
+    help,
     success,
     error
   });
+});
+
+// Admin settings page (POST Help Message)
+router.post('/settings/help', async (req, res) => {
+    const { content } = req.body;
+    let success = null;
+    let error = null;
+
+    try {
+        if (!content || content.trim() === '') {
+            error = 'Help message content cannot be empty.';
+        } else {
+            const help = await Help.findOneOrCreate();
+            help.content = content;
+            await help.save();
+            success = 'Help message updated successfully.';
+        }
+    } catch (e) {
+        console.error('[Settings] Error saving help message:', e);
+        error = 'Failed to save help message.';
+    }
+
+    // Reload all settings to re-render the page
+    let smsSettings = {};
+    let momoSettings = loadMomoSettings();
+    try {
+        if (fs.existsSync(smsSettingsPath)) {
+            smsSettings = JSON.parse(fs.readFileSync(smsSettingsPath, 'utf8'));
+        }
+    } catch { smsSettings = {}; }
+    const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
+    const help = await Help.findOneOrCreate();
+
+    res.render('admin/settings', {
+        currencies: [], 
+        quickReplies: [], 
+        smsSettings,
+        smsAlert: null,
+        currency: activeCurrency,
+        momoSettings,
+        help,
+        success,
+        error
+    });
 });
 
 // Admin settings page (POST SMS settings)
@@ -216,7 +264,8 @@ router.post('/settings/sms', async (req, res) => {
     smsAlert = { type: 'danger', message: 'Failed to save SMS settings.' };
   }
   const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
-  res.render('admin/settings', { currencies: [], quickReplies: [], smsSettings, smsAlert, currency: activeCurrency });
+  const help = await Help.findOneOrCreate();
+  res.render('admin/settings', { currencies: [], quickReplies: [], smsSettings, smsAlert, currency: activeCurrency, help });
 });
 
 // Root admin route - redirect to dashboard
