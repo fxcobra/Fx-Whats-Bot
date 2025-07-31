@@ -249,6 +249,11 @@ async function handleExistingOrderConversation(chatId, text, existingOrder, mess
 const handleMessage = async (message) => {
     try {
         const chatId = message.key.remoteJid;
+
+        // Ignore messages from groups
+        if (chatId.endsWith('@g.us')) {
+            return;
+        }
         const text = message.message?.conversation || message.message?.extendedTextMessage?.text || '';
 
         if (!chatId || !text) {
