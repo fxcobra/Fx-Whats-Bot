@@ -89,791 +89,230 @@ const safeSendMessage = async (jid, content, retries = 3) => {
     return null;
 };
 
-// Message handler
-const handleMessage = async (message) => {
-    try {
-        if (!message.message) return;
-        
-        const chatId = message.key.remoteJid;
-        const text = message.message.conversation || 
-                    message.message.extendedTextMessage?.text || '';
-        
-        // Skip group and broadcast messages
-        if (chatId.endsWith('@g.us') || chatId.endsWith('@broadcast')) {
-            return;
-        }
-        
-        let state = userStates.get(chatId);
-        
-        // Log incoming message for debugging
-        console.log('Incoming message:', {
-            chatId,
-            text,
-            hasState: !!state,
-            stateStep: state ? state.step : 'none'
-        });
-        
-        // Special handling for common commands that should always work
-        const normalizedText = text.toLowerCase().trim();
-        if (normalizedText === 'menu' || normalizedText === 'start' || normalizedText === 'help') {
-            // Always clear any existing state and show menu
-            userStates.delete(chatId);
-            const currency = await getActiveCurrency();
-            const services = await Service.find({ parentId: null });
-            let reply = 'Welcome to Fx Cobra X Services! Here are our services:\n';
-            services.forEach((s, i) => { 
-                if (s.price && s.price > 0) {
-                    reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`;
-                } else {
-                    reply += `${i+1}. ${s.name}\n`;
-                }
-            });
-            reply += 'Reply with the number of your choice.';
-            await safeSendMessage(chatId, { text: reply });
-            userStates.set(chatId, { step: 'service_selection', services });
-            return;
-        }
-        
-        // Always check for existing orders first, regardless of state
-        const existingOrder = await Order.findOne({ 
-            userId: chatId, 
-            status: { $nin: ['completed', 'cancelled', 'closed'] },
-            $or: [
-                { status: { $exists: false } }, // Backward compatibility
-                { status: { $in: ['pending', 'processing'] } }
-            ]
-        }).sort({ createdAt: -1 });
-        
-        console.log('Existing order check:', {
-            found: !!existingOrder,
-            orderId: existingOrder ? existingOrder._id : 'none',
-            status: existingOrder ? existingOrder.status : 'none',
-            hasAdminReplies: existingOrder ? (existingOrder.adminReplies ? existingOrder.adminReplies.length : 0) : 0
-        });
-        
-        // Only treat as reply if user is in_conversation or has no menu state
-        if ((!state || state.step === 'in_conversation') && existingOrder) {
-            
-            // User has an active order - this is likely a reply to admin
-            console.log('User has active order, treating as reply:', {
-                orderId: existingOrder._id,
-                userMessage: text,
-                orderStatus: existingOrder.status,
-                orderCreated: existingOrder.createdAt
-            });
-                
-                // Check if this is a command to close the conversation
-                if (normalizedText === 'close' || normalizedText === 'end' || normalizedText === 'done') {
-                    await Order.findByIdAndUpdate(
-                        existingOrder._id,
-                        { $set: { status: 'pending' } }
-                    );
-                    
-                    await safeSendMessage(chatId, {
-                        text: `✅ Order #${existingOrder._id.toString().slice(-8)} has been marked as pending.\n\nThank you for your business! Type 'menu' to start a new order.`
-                    });
-                    
-                    userStates.delete(chatId);
-                    return;
-                }
-                
-                // Add user message to the order as a customer reply
-                try {
-                    const updatedOrder = await Order.findByIdAndUpdate(
-                        existingOrder._id,
-                        { 
-                            $push: { 
-                                adminReplies: { 
-                                    message: text,
-                                    timestamp: new Date(),
-                                    isCustomer: true
-                                } 
-                            },
-                            $set: { 
-                                status: 'processing',
-                                updatedAt: new Date()
-                            }
-                        },
-                        { new: true }
-                    );
-                    
-                    console.log('Customer reply added to order:', {
-                        orderId: updatedOrder._id,
-                        totalReplies: updatedOrder.adminReplies.length,
-                        latestReply: updatedOrder.adminReplies[updatedOrder.adminReplies.length - 1]
-                    });
-                    
-                    // Always keep the conversation going for this order
-                    userStates.set(chatId, { 
-                        step: 'in_conversation',
-                        orderId: existingOrder._id
-                    });
-                    
-                    console.log('User state set to in_conversation:', {
-                        chatId,
-                        orderId: existingOrder._id,
-                        step: 'in_conversation'
-                    });
-                    
-                    // Only send acknowledgment if this isn't a command
-                    if (!['menu', 'start', 'help', 'close', 'end', 'done'].includes(normalizedText)) {
-                        await safeSendMessage(chatId, { 
-                            text: `✅ Your message has been added to order #${existingOrder._id.toString().slice(-8)}.\n\n💬 Your message: "${text}"\n\nOur team will respond shortly. Type 'close' to end this conversation.`
-                        });
-                    }
-                    
-                    return;
-                } catch (error) {
-                    console.error('Error updating order with customer reply:', error);
-                    await safeSendMessage(chatId, { 
-                        text: '⚠️ There was an error processing your message. Please try again.'
-                    });
-                    return;
-                }
-            return; // Important: return here to prevent further processing
-        }
-        
-        if (!state) {
-            // No existing orders - show welcome message
-            const services = await Service.find({ parentId: null });
-            let reply = 'Welcome to Fx Cobra X Services! Here are our services:\n';
-            services.forEach((s, i) => { 
-                reply += `${i+1}. ${s.name}\n`; 
-            });
-            reply += 'Reply with the number of your choice.';
-            
-            await safeSendMessage(chatId, { text: reply });
-            userStates.set(chatId, { step: 'service_selection', services });
-            return;
-        }
-        
-        // Handle service selection
-        if (state.step === 'service_selection') {
-            // Debug: log state
-            console.log('[service_selection] state:', state);
-            // Only handle back at top
-            if (text.trim().toLowerCase() === 'back') {
-                await safeSendMessage(chatId, { text: 'You are at the main menu.' });
-                const services = await Service.find({ parentId: null });
-                userStates.set(chatId, { step: 'service_selection', services, navStack: [] });
-                let reply = 'Welcome to Fx Cobra X Services! Here are our services:\n';
-                const currency = await getActiveCurrency();
-                services.forEach((s, i) => {
-                    if (s.price && s.price > 0) {
-                        reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`;
-                    } else {
-                        reply += `${i+1}. ${s.name}\n`;
-                    }
-                });
-                reply += 'Reply with the number of your choice.';
-                await safeSendMessage(chatId, { text: reply });
-                return;
-            }
-            const choice = text.trim();
-            if (!isNaN(choice) && choice > 0 && choice <= state.services.length) {
-                const selectedService = state.services[parseInt(choice) - 1];
-                const subServices = await Service.find({ parentId: selectedService._id });
-                if (subServices.length > 0) {
-                    const orderableServices = [];
-                    const categoryServices = [];
-                    for (const service of subServices) {
-                        if (service.price && service.price > 0) {
-                            orderableServices.push(service);
-                        } else {
-                            const hasChildren = await Service.countDocuments({ parentId: service._id });
-                            if (hasChildren > 0) {
-                                categoryServices.push(service);
-                            }
-                        }
-                    }
-                    const allDisplayServices = [...categoryServices, ...orderableServices];
-                    const hasAnyOrderable = await hasOrderableServices(selectedService._id);
-                    if (allDisplayServices.length > 0 && hasAnyOrderable) {
-                        let reply = `You selected: ${selectedService.name}\n\nAvailable options:\n`;
-                        allDisplayServices.forEach((s, i) => { 
-                            if (s.price && s.price > 0) {
-                                reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`; 
-                            } else {
-                                reply += `${i+1}. ${s.name} (Category)\n`;
-                            }
-                        });
-                        reply += 'Reply with the number of your choice or type "back" to go to the previous menu.';
-                        // Always push full state
-                        let navStack = state.navStack || [];
-                        navStack = [...navStack, { step: 'service_selection', services: state.services, navStack: navStack }];
-                        await safeSendMessage(chatId, { text: reply });
-                        userStates.set(chatId, { 
-                            step: 'product_selection', 
-                            selectedService,
-                            subServices: allDisplayServices,
-                            navStack
-                        });
-                        return;
-                    } else if (!hasAnyOrderable) {
-                        await safeSendMessage(chatId, { 
-                            text: `❌ No orderable services found under "${selectedService.name}".\n\nType 'menu' to go back to main menu.` 
-                        });
-                        userStates.delete(chatId);
-                        return;
-                    } else {
-                        await safeSendMessage(chatId, { 
-                            text: `❌ No orderable services found under "${selectedService.name}".\n\nType 'menu' to go back to main menu.` 
-                        });
-                        userStates.delete(chatId);
-                        return;
-                    }
-                } else {
-                    if (selectedService.price && selectedService.price > 0) {
-                        await safeSendMessage(chatId, { 
-                            text: `You selected: ${selectedService.name}\nPrice: ${currency.symbol}${selectedService.price.toFixed(2)}\n\nReply with 'order' to place an order or 'menu' to go back to main menu.` 
-                        });
-                        userStates.set(chatId, { 
-                            step: 'order_confirmation', 
-                            selectedService 
-                        });
-                        return;
-                    } else {
-                        await safeSendMessage(chatId, { 
-                            text: `❌ "${selectedService.name}" is not available for ordering.\n\nType 'menu' to see available options.` 
-                        });
-                        userStates.delete(chatId);
-                        return;
-                    }
-                }
-            } else {
-                await safeSendMessage(chatId, { 
-                    text: 'Invalid choice. Please select a valid number.' 
-                });
-                return;
-            }
-        }
-            // Back navigation
-            if (text.trim().toLowerCase() === 'back') {
-                await safeSendMessage(chatId, { text: 'You are at the main menu.' });
-                const services = await Service.find({ parentId: null });
-                userStates.set(chatId, { step: 'service_selection', services, navStack: [] });
-                let reply = 'Welcome to Fx Cobra X Services! Here are our services:\n';
-                const currency = await getActiveCurrency();
-                services.forEach((s, i) => {
-                    if (s.price && s.price > 0) {
-                        reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`;
-                    } else {
-                        reply += `${i+1}. ${s.name}\n`;
-                    }
-                });
-                reply += 'Reply with the number of your choice.';
-                await safeSendMessage(chatId, { text: reply });
-                return;
-            }
-            const choice = text.trim();
-            if (!isNaN(choice) && choice > 0 && choice <= state.services.length) {
-                const selectedService = state.services[parseInt(choice) - 1];
-                
-                // Get sub-services or products
-                const subServices = await Service.find({ parentId: selectedService._id });
-                
-                if (subServices.length > 0) {
-                    // Filter to only show services that can be ordered (have prices) or are categories with children
-                    const orderableServices = [];
-                    const categoryServices = [];
-                    
-                    for (const service of subServices) {
-                        if (service.price && service.price > 0) {
-                            orderableServices.push(service);
-                        } else {
-                            // Check if this service has children (is a category)
-                            const hasChildren = await Service.countDocuments({ parentId: service._id });
-                            if (hasChildren > 0) {
-                                categoryServices.push(service);
-                            }
-                        }
-                    }
-                    
-                    const allDisplayServices = [...categoryServices, ...orderableServices];
-                    
-                    // RECURSIVE CHECK: Only show 'no orderable services' if none exist at any depth
-                    const hasAnyOrderable = await hasOrderableServices(selectedService._id);
-                    if (allDisplayServices.length > 0 && hasAnyOrderable) {
-                        let reply = `You selected: ${selectedService.name}\n\nAvailable options:\n`;
-                        allDisplayServices.forEach((s, i) => { 
-                            if (s.price && s.price > 0) {
-                                reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`; 
-                            } else {
-                                reply += `${i+1}. ${s.name} (Category)\n`;
-                            }
-                        });
-                        reply += 'Reply with the number of your choice or type "back" to go to the previous menu.';
-                        // Push current state to navStack for back navigation
-                        let navStack = state.navStack || [];
-                        navStack = [...navStack, { step: 'service_selection', services: state.services }];
-                        await safeSendMessage(chatId, { text: reply });
-                        userStates.set(chatId, { 
-                            step: 'product_selection', 
-                            selectedService,
-                            subServices: allDisplayServices,
-                            navStack
-                        });
-                    } else if (!hasAnyOrderable) {
-                        await safeSendMessage(chatId, { 
-                            text: `❌ No orderable services found under "${selectedService.name}".\n\nType 'menu' to go back to main menu.` 
-                        });
-                        userStates.delete(chatId);
-                    } else {
-                        // Defensive fallback
-                        await safeSendMessage(chatId, { 
-                            text: `❌ No orderable services found under "${selectedService.name}".\n\nType 'menu' to go back to main menu.` 
-                        });
-                        userStates.delete(chatId);
-                    }
-                } else {
-                    // This is a leaf service - check if it can be ordered
-                    if (selectedService.price && selectedService.price > 0) {
-                        await safeSendMessage(chatId, { 
-                            text: `You selected: ${selectedService.name}\nPrice: ${currency.symbol}${selectedService.price.toFixed(2)}\n\nReply with 'order' to place an order or 'menu' to go back to main menu.` 
-                        });
-                        userStates.set(chatId, { 
-                            step: 'order_confirmation', 
-                            selectedService 
-                        });
-                    } else {
-                        await safeSendMessage(chatId, { 
-                            text: `❌ "${selectedService.name}" is not available for ordering.\n\nType 'menu' to see available options.` 
-                        });
-                        userStates.delete(chatId);
-                    }
-                }
-            } else {
-                await safeSendMessage(chatId, { 
-                    text: 'Invalid choice. Please select a valid number.' 
-                });
-            }
-        }
-        // Handle product selection
-        else if (state.step === 'product_selection') {
-            // ... (rest of product_selection logic)
-        }
-        // End of menu navigation logic
-    } catch (error) {
-        console.error('Error handling message:', error);
-        try {
-            await safeSendMessage(message.key.remoteJid, { text: '⚠️ Sorry, an error occurred. Please try again or type "menu".' });
-                                reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`;
-                            } else {
-                                reply += `${i+1}. ${s.name}\n`;
-                            }
-                        });
-                        reply += 'Reply with the number of your choice or type "back" to go to the previous menu.';
-                        await safeSendMessage(chatId, { text: reply });
-                        userStates.set(chatId, { ...prev, navStack: navStack.slice(0, -1) });
-                        return;
-                    }
-                } else {
-                    // No previous state, show main menu
-                    const services = await Service.find({ parentId: null });
-                    let reply = 'Welcome to Fx Cobra X Services! Here are our services:\n';
-                    const currency = await getActiveCurrency();
-                    services.forEach((s, i) => {
-                        if (s.price && s.price > 0) {
-                            reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`;
-                        } else {
-                            reply += `${i+1}. ${s.name}\n`;
-                        }
-                    });
-                    reply += 'Reply with the number of your choice or type "back" to go to the previous menu.';
-                    await safeSendMessage(chatId, { text: reply });
-                    userStates.set(chatId, { step: 'service_selection', services, navStack: [] });
-                    return;
-                }
-            }
-            const currency = await getActiveCurrency();
-            const choice = parseInt(text);
-            if (!isNaN(choice) && choice > 0 && choice <= state.subServices.length) {
-                const selectedProduct = state.subServices[choice - 1];
-                if (selectedProduct.price && selectedProduct.price > 0) {
-                    await safeSendMessage(chatId, { 
-                        text: `You selected: ${selectedProduct.name}\nPrice: ${currency.symbol}${selectedProduct.price.toFixed(2)}\n\nReply with 'order' to place an order or 'menu' to go back to main menu.` 
-                    });
-                    userStates.set(chatId, { 
-                        step: 'order_confirmation', 
-                        selectedService: selectedProduct 
-                    });
-                    return;
-                } else {
-                    // This is a category - show its children
-                    const subServices = await Service.find({ parentId: selectedProduct._id });
-                    const hasAnyOrderable = await hasOrderableServices(selectedProduct._id);
-                    if (subServices.length > 0 && hasAnyOrderable) {
-                        const orderableServices = [];
-                        const categoryServices = [];
-                        for (const s of subServices) {
-                            if (s.price && s.price > 0) {
-                                orderableServices.push(s);
-                            } else {
-                                const hasChildren = await Service.countDocuments({ parentId: s._id });
-                                if (hasChildren > 0) {
-                                    categoryServices.push(s);
-                                }
-                            }
-                        }
-                        const allDisplayServices = [...categoryServices, ...orderableServices];
-                        let reply = `You selected: ${selectedProduct.name}\n\nAvailable options:\n`;
-                        allDisplayServices.forEach((s, i) => { 
-                            if (s.price && s.price > 0) {
-                                reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`; 
-                            } else {
-                                reply += `${i+1}. ${s.name} (Category)\n`;
-                            }
-                        });
-                        reply += 'Reply with the number of your choice or type "back" to go to the previous menu.';
-                        // Always push full state
-                        let navStack = state.navStack || [];
-                        navStack = [...navStack, { step: 'product_selection', selectedService: state.selectedService, subServices: state.subServices, navStack: navStack }];
-                        await safeSendMessage(chatId, { text: reply });
-                        userStates.set(chatId, { 
-                            step: 'product_selection', 
-                            selectedService: selectedProduct,
-                            subServices: allDisplayServices,
-                            navStack
-                        });
-                        return;
-                    } else if (!hasAnyOrderable) {
-                        await safeSendMessage(chatId, { 
-                            text: `❌ No orderable services found under "${selectedProduct.name}".\n\nType 'menu' to go back to main menu.` 
-                        });
-                        userStates.delete(chatId);
-                        return;
-                    } else {
-                        await safeSendMessage(chatId, { 
-                            text: `❌ "${selectedProduct.name}" is a category with no available services.\n\nType 'menu' to go back to main menu.` 
-                        });
-                        userStates.delete(chatId);
-                        return;
-                    }
-                }
-            } else {
-                await safeSendMessage(chatId, { 
-                    text: 'Invalid choice. Please select a valid number.' 
-                });
-                return;
-            }
-        }
-            // Always handle 'back' first, before any numeric or other checks
-            if (text.trim().toLowerCase() === 'back') {
-                const navStack = state.navStack || [];
-                if (navStack.length > 0) {
-                    const prev = navStack[navStack.length - 1];
-                    if (prev.step === 'service_selection') {
-                        let reply = 'Welcome to Fx Cobra X Services! Here are our services:\n';
-                        const currency = await getActiveCurrency();
-                        prev.services.forEach((s, i) => {
-                            if (s.price && s.price > 0) {
-                                reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`;
-                            } else {
-                                reply += `${i+1}. ${s.name}\n`;
-                            }
-                        });
-                        reply += 'Reply with the number of your choice or type "back" to go to the previous menu.';
-                        await safeSendMessage(chatId, { text: reply });
-                        userStates.set(chatId, { ...prev, navStack: navStack.slice(0, -1) });
-                        return;
-                    }
-                } else {
-                    // No previous state, show main menu
-                    const services = await Service.find({ parentId: null });
-                    let reply = 'Welcome to Fx Cobra X Services! Here are our services:\n';
-                    const currency = await getActiveCurrency();
-                    services.forEach((s, i) => {
-                        if (s.price && s.price > 0) {
-                            reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`;
-                        } else {
-                            reply += `${i+1}. ${s.name}\n`;
-                        }
-                    });
-                    reply += 'Reply with the number of your choice or type "back" to go to the previous menu.';
-                    await safeSendMessage(chatId, { text: reply });
-                    userStates.set(chatId, { step: 'service_selection', services, navStack: [] });
-                    return;
-                }
-            }
+// --- Refactored Message Handling Logic ---
 
-            // Ensure currency is defined for price formatting
-            const currency = await getActiveCurrency();
-            // Only handle numeric choices here; 'back' is handled above
-            const choice = parseInt(text);
-            if (!isNaN(choice) && choice > 0 && choice <= state.subServices.length) {
-                const selectedProduct = state.subServices[choice - 1];
-                
-                // Check if this is a category (no price) or an orderable service
-                if (selectedProduct.price && selectedProduct.price > 0) {
-                    // This is an orderable service
-                    await safeSendMessage(chatId, { 
-                        text: `You selected: ${selectedProduct.name}\nPrice: ${currency.symbol}${selectedProduct.price.toFixed(2)}\n\nReply with 'order' to place an order or 'menu' to go back to main menu.` 
-                    });
-                    userStates.set(chatId, { 
-                        step: 'order_confirmation', 
-                        selectedService: selectedProduct 
-                    });
-                } else {
-                    // This is a category - show its children
-                    const subServices = await Service.find({ parentId: selectedProduct._id });
-                    
-                    // RECURSIVE CHECK: Only show 'no orderable services' if none exist at any depth
-                    const hasAnyOrderable = await hasOrderableServices(selectedProduct._id);
-                    if (subServices.length > 0 && hasAnyOrderable) {
-                        // Filter to only show orderable services and categories
-                        const orderableServices = [];
-                        const categoryServices = [];
-                        for (const s of subServices) {
-                            if (s.price && s.price > 0) {
-                                orderableServices.push(s);
-                            } else {
-                                const hasChildren = await Service.countDocuments({ parentId: s._id });
-                                if (hasChildren > 0) {
-                                    categoryServices.push(s);
-                                }
-                            }
-                        }
-                        const allDisplayServices = [...categoryServices, ...orderableServices];
-                        let reply = `You selected: ${selectedProduct.name}\n\nAvailable options:\n`;
-                        allDisplayServices.forEach((s, i) => { 
-                            if (s.price && s.price > 0) {
-                                reply += `${i+1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`; 
-                            } else {
-                                reply += `${i+1}. ${s.name} (Category)\n`;
-                            }
-                        });
-                        reply += 'Reply with the number of your choice or type "back" to go to the previous menu.';
-                        // Push current state to navStack for back navigation
-                        let navStack = state.navStack || [];
-                        navStack = [...navStack, { step: 'product_selection', selectedService: selectedProduct, subServices: state.subServices }];
-                        await safeSendMessage(chatId, { text: reply });
-                        userStates.set(chatId, { 
-                            step: 'product_selection', 
-                            selectedService: selectedProduct,
-                            subServices: allDisplayServices,
-                            navStack 
-                        });
-                    } else if (!hasAnyOrderable) {
-                        await safeSendMessage(chatId, { 
-                            text: `❌ No orderable services found under "${selectedProduct.name}".\n\nType 'menu' to go back to main menu.` 
-                        });
-                        userStates.delete(chatId);
-                        return;
-                    } else {
-                        await safeSendMessage(chatId, { 
-                            text: `❌ "${selectedProduct.name}" is a category with no available services.\n\nType 'menu' to go back to main menu.` 
-                        });
-                        userStates.delete(chatId);
-                        return;
-                    }
-                }
-            } else {
-                await safeSendMessage(chatId, { 
-                    text: 'Invalid choice. Please select a valid number.' 
-                });
-            }
+async function showMainMenu(chatId, message = 'Welcome to Fx Cobra X Services! Here are our services:') {
+    const currency = await getActiveCurrency();
+    const services = await Service.find({ parentId: null });
+    let reply = `${message}\n`;
+    services.forEach((s, i) => {
+        if (s.price && s.price > 0) {
+            reply += `${i + 1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`;
+        } else {
+            reply += `${i + 1}. ${s.name}\n`;
         }
-        // Handle order confirmation
-        else if (state.step === 'order_confirmation') {
-            const normalizedText = text.toLowerCase().trim();
-            
-            // Get active currency symbol for price display
-            const currency = await getActiveCurrency();
-
-            if (normalizedText === 'order') {
-                try {
-                    // Get the latest service data from the database
-                    const service = await Service.findById(state.selectedService._id);
-                    if (!service) {
-                        throw new Error('Service not found');
-                    }
-
-                    // Check if this service can be ordered (has a price)
-                    if (!service.price || service.price <= 0) {
-                        await safeSendMessage(chatId, { 
-                            text: `❌ Sorry, "${service.name}" is a category and cannot be ordered directly.\n\nPlease select a specific service with pricing from the menu.\n\nType 'menu' to see available options.` 
-                        });
-                        userStates.delete(chatId);
-                        return;
-                    }
-
-                    // Create order with service details
-                    const orderData = {
-                        userId: chatId,
-                        serviceId: service._id,
-                        serviceName: service.name,
-                        price: service.price,
-                        status: 'pending',
-                        message: `I would like to order: ${service.name} for ${currency.symbol}${service.price.toFixed(2)}`,
-                        adminReplies: []
-                    };
-                    
-                    console.log('Creating new order with data:', orderData);
-                    let order = new Order(orderData);
-                    await order.save();
-
-                    // --- MTN MoMo Payment Initiation ---
-                    let momoReferenceId = null;
-                    let momoPaymentStatus = 'unpaid';
-                    let momoPaymentLink = '';
-                    try {
-                        // Use user's phone number (MSISDN) from chatId (strip @s.whatsapp.net)
-                        const payerPhone = chatId.replace(/@s\.whatsapp\.net$/, '');
-                        // Import MoMo payment utility
-                        const { requestToPay } = await import('../mtnMomo.js');
-                        momoReferenceId = await requestToPay({
-                            amount: service.price,
-                            currency: process.env.MTN_MOMO_CURRENCY || 'GHS',
-                            payer: payerPhone,
-                            externalId: order._id.toString(),
-                            payerMessage: `Order #${order._id}`,
-                            payeeNote: `Fx Cobra X Order #${order._id}`
-                        });
-                        momoPaymentLink = `${process.env.PUBLIC_URL || 'https://yourdomain.com'}/payment/momo/${momoReferenceId}`;
-                        momoPaymentStatus = 'unpaid';
-                        // Save payment info to order
-                        order.payment = {
-                            method: 'mtn_momo',
-                            status: momoPaymentStatus,
-                            paymentLink: momoPaymentLink,
-                            referenceId: momoReferenceId
-                        };
-                        await order.save();
-                        // Send payment link to user
-                        await safeSendMessage(chatId, {
-                            text: `💳 Please complete your payment to confirm your order:\n\n🔗 Payment Link: ${momoPaymentLink}\n\nOnce payment is received, your order will be processed.\n\nReply 'paid' after you have paid, or type 'menu' to cancel.`
-                        });
-                    } catch (momoErr) {
-                        console.error('[MoMo] Payment initiation error:', momoErr);
-                        await safeSendMessage(chatId, {
-                            text: `⚠️ Failed to initiate payment with MTN MoMo. Please try again later or contact support.`
-                        });
-                        // Optionally mark order as failed or pending manual intervention
-                    }
-                    // --- End MoMo Payment Initiation ---
-
-// Send SMS notification to admin/recipient (do not block order flow)
-try {
-    const smsText = `New Order: ${service.name} (${currency.symbol}${service.price.toFixed(2)}) from ${chatId}`;
-    let smsConfig = { apiKey: '', sender: '', recipient: '' };
-    const smsSettingsPath = path.resolve(process.cwd(), 'smsSettings.json');
-    try {
-        if (fs.existsSync(smsSettingsPath)) {
-            smsConfig = JSON.parse(fs.readFileSync(smsSettingsPath, 'utf8'));
-        }
-    } catch (configErr) {
-        console.error('[SMS] Failed to read smsSettings.json:', configErr);
-    }
-    console.log('[SMS] Attempting to send SMS:', { smsText, smsConfig });
-    sendSMS(smsText, smsConfig)
-        .then((result) => {
-            console.log('[SMS] Notification sent for new order. API result:', result);
-        })
-        .catch(err => {
-            console.error('[SMS] Error sending notification:', err && err.message ? err.message : err);
-        });
-} catch (err) {
-    console.error('[SMS] Unexpected error in SMS notification:', err && err.message ? err.message : err);
+    });
+    reply += 'Reply with the number of your choice.';
+    await safeSendMessage(chatId, { text: reply });
+    userStates.set(chatId, { step: 'service_selection', services, navStack: [] });
 }
 
-// Verify the order was saved by fetching it back with all fields
-                    const savedOrder = await Order.findById(order._id).lean();
-                    console.log('Fetched saved order from DB:', {
-                        _id: savedOrder._id,
-                        serviceName: savedOrder.serviceName,
-                        price: savedOrder.price,
-                        message: savedOrder.message,
-                        adminRepliesCount: savedOrder.adminReplies ? savedOrder.adminReplies.length : 0
-                    });
-                    
-                    // DEBUG: Log service object and _id before breadcrumb
-                    console.log('[Order Debug] service:', service);
-                    console.log('[Order Debug] service._id:', service._id);
-                    let breadcrumb = await getServiceBreadcrumb(service._id);
-                    console.log('[Order Debug] breadcrumb:', breadcrumb);
-                    if (!breadcrumb || breadcrumb.length === 0) {
-                        breadcrumb = [service.name || 'UNKNOWN SERVICE'];
-                    }
-                    await safeSendMessage(chatId, { 
-                        text: `✅ Order placed successfully!\n\n📋 Order ID: ${order._id}\n💼 Service: ${breadcrumb.join(' > ')}\n💰 Price: ${currency.symbol}${service.price}\n📊 Status: Pending\n\nYou will receive updates on your order status. Thank you for choosing Fx Cobra X!` 
-                    });
-                    
-                    // Reset user state
-                    userStates.delete(chatId);
-                } catch (error) {
-                    console.error('Error creating order:', error);
-                    await safeSendMessage(chatId, { 
-                        text: "❌ Sorry, there was an error processing your order. Please try again or contact support."
-                    });
-                }
-            } else if (normalizedText === 'menu') {
-                userStates.delete(chatId);
-                await handleMessage({ ...message, message: { conversation: '' } }); // Restart with welcome message
+async function handleBackNavigation(chatId, state) {
+    const navStack = state.navStack || [];
+    if (navStack.length > 0) {
+        const prevState = navStack.pop(); // Get the last state
+        userStates.set(chatId, prevState); // Restore previous state
+
+        const currency = await getActiveCurrency();
+        let reply = `Going back...\n\nAvailable options:\n`;
+        prevState.services.forEach((s, i) => {
+            if (s.price && s.price > 0) {
+                reply += `${i + 1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`;
             } else {
-                // If we get here, the user sent an unexpected message
-                await safeSendMessage(chatId, { 
-                    text: `⚠️ Please choose an option:\n• Type 'order' to confirm your order\n• Type 'menu' to go back to main menu`
-                });
+                reply += `${i + 1}. ${s.name} (Category)\n`;
             }
+        });
+        reply += 'Reply with the number of your choice or type "back" to go to the previous menu.';
+        await safeSendMessage(chatId, { text: reply });
+    } else {
+        // At the top level, show main menu
+        await showMainMenu(chatId, 'You are at the main menu. Here are the services:');
+    }
+}
+
+async function handleServiceSelection(chatId, state, text) {
+    const choice = parseInt(text.trim());
+    if (isNaN(choice) || choice <= 0 || choice > state.services.length) {
+        await safeSendMessage(chatId, { text: 'Invalid choice. Please select a valid number.' });
+        return;
+    }
+
+    const selectedService = state.services[choice - 1];
+    const subServices = await Service.find({ parentId: selectedService._id });
+    const currency = await getActiveCurrency();
+
+    // If the selected service has a price, it's orderable directly
+    if (selectedService.price && selectedService.price > 0) {
+        await safeSendMessage(chatId, {
+            text: `You selected: ${selectedService.name}\nPrice: ${currency.symbol}${selectedService.price.toFixed(2)}\n\nReply with 'order' to place an order or 'menu' to go back.`
+        });
+        userStates.set(chatId, { step: 'order_confirmation', selectedService, navStack: state.navStack || [] });
+        return;
+    }
+
+    // If it's a category, find its children
+    if (subServices.length > 0) {
+        const hasAnyOrderable = await hasOrderableServices(selectedService._id);
+        if (hasAnyOrderable) {
+            let reply = `You selected: ${selectedService.name}\n\nAvailable options:\n`;
+            subServices.forEach((s, i) => {
+                if (s.price && s.price > 0) {
+                    reply += `${i + 1}. ${s.name} - ${currency.symbol}${s.price.toFixed(2)}\n`;
+                } else {
+                    reply += `${i + 1}. ${s.name} (Category)\n`;
+                }
+            });
+            reply += 'Reply with the number of your choice or type "back".';
+
+            const navStack = state.navStack || [];
+            navStack.push(state); // Save current state for back navigation
+
+            await safeSendMessage(chatId, { text: reply });
+            userStates.set(chatId, { step: 'service_selection', services: subServices, navStack });
+        } else {
+            await safeSendMessage(chatId, { text: `❌ No orderable services found under "${selectedService.name}".` });
+            await handleBackNavigation(chatId, state); // Go back automatically
         }
-        // Handle in_conversation state - when user is actively chatting with admin
-        else if (state.step === 'in_conversation') {
-            const orderId = state.orderId;
-            
-            // Check if this is a command to close the conversation
-            if (normalizedText === 'close' || normalizedText === 'end' || normalizedText === 'done') {
-                await Order.findByIdAndUpdate(
-                    orderId,
-                    { $set: { status: 'pending' } }
-                );
-                
-                await safeSendMessage(chatId, {
-                    text: `✅ Order #${orderId.toString().slice(-8)} has been marked as pending.\n\nThank you for your business! Type 'menu' to start a new order.`
-                });
-                
-                userStates.delete(chatId);
-                return;
+    } else {
+        await safeSendMessage(chatId, { text: `❌ "${selectedService.name}" is a category with no services.` });
+        await showMainMenu(chatId); // No children, show main menu
+    }
+}
+
+async function handleOrderConfirmation(chatId, state, text) {
+    const normalizedText = text.toLowerCase().trim();
+    const currency = await getActiveCurrency();
+    const service = await Service.findById(state.selectedService._id);
+
+    if (normalizedText !== 'order') {
+        await safeSendMessage(chatId, { text: `⚠️ Please type 'order' to confirm or 'menu' to cancel.` });
+        return;
+    }
+
+    if (!service || !service.price || service.price <= 0) {
+        await safeSendMessage(chatId, { text: `❌ Sorry, "${service.name}" cannot be ordered.` });
+        userStates.delete(chatId);
+        await showMainMenu(chatId);
+        return;
+    }
+
+    try {
+        const orderData = {
+            userId: chatId,
+            serviceId: service._id,
+            serviceName: service.name,
+            price: service.price,
+            status: 'pending',
+            message: `I would like to order: ${service.name} for ${currency.symbol}${service.price.toFixed(2)}`,
+            adminReplies: []
+        };
+
+        let order = new Order(orderData);
+        await order.save();
+
+        const breadcrumb = await getServiceBreadcrumb(service._id);
+        const servicePath = (breadcrumb && breadcrumb.length > 0) ? breadcrumb.join(' > ') : service.name;
+
+        await safeSendMessage(chatId, {
+            text: `✅ Order placed successfully!\n\n📋 Order ID: ${order._id}\n💼 Service: ${servicePath}\n💰 Price: ${currency.symbol}${service.price.toFixed(2)}\n📊 Status: Pending\n\nYou will receive updates shortly.`
+        });
+
+        // --- Optional: SMS Notification ---
+        try {
+            const smsText = `New Order: ${service.name} (${currency.symbol}${service.price.toFixed(2)}) from ${chatId}`;
+            const smsSettingsPath = path.resolve(process.cwd(), 'smsSettings.json');
+            if (fs.existsSync(smsSettingsPath)) {
+                const smsConfig = JSON.parse(fs.readFileSync(smsSettingsPath, 'utf8'));
+                sendSMS(smsText, smsConfig).catch(err => console.error('[SMS] Error sending notification:', err.message));
             }
-            
-            // Check if user wants to go back to menu
-            if (normalizedText === 'menu' || normalizedText === 'start' || normalizedText === 'help') {
-                // Don't close the order, just reset the state
+        } catch (err) {
+            console.error('[SMS] Unexpected error in SMS notification:', err.message);
+        }
+
+        userStates.delete(chatId);
+    } catch (error) {
+        console.error('Error creating order:', error);
+        await safeSendMessage(chatId, { text: "❌ Sorry, there was an error placing your order. Please try again." });
+    }
+}
+
+async function handleExistingOrderConversation(chatId, text, existingOrder) {
+    const normalizedText = text.toLowerCase().trim();
+
+    if (['close', 'end', 'done'].includes(normalizedText)) {
+        await Order.findByIdAndUpdate(existingOrder._id, { $set: { status: 'pending' } });
+        await safeSendMessage(chatId, { text: `✅ Order #${existingOrder._id.toString().slice(-8)} conversation closed. Type 'menu' to start a new order.` });
+        userStates.delete(chatId);
+        return;
+    }
+
+    try {
+        await Order.findByIdAndUpdate(existingOrder._id, {
+            $push: { adminReplies: { message: text, timestamp: new Date(), isCustomer: true } },
+            $set: { status: 'processing', updatedAt: new Date() }
+        }, { new: true });
+
+        await safeSendMessage(chatId, { text: `✅ Your message has been added to order #${existingOrder._id.toString().slice(-8)}. Our team will respond shortly. Type 'close' to end this conversation.` });
+        userStates.set(chatId, { step: 'in_conversation', orderId: existingOrder._id });
+    } catch (error) {
+        console.error('Error updating order with customer reply:', error);
+        await safeSendMessage(chatId, { text: '⚠️ There was an error processing your message. Please try again.' });
+    }
+}
+
+// Main Message Handler
+const handleMessage = async (message) => {
+    if (!message.message) return;
+
+    const chatId = message.key.remoteJid;
+    if (chatId.endsWith('@g.us') || chatId.endsWith('@broadcast')) return;
+
+    const text = (message.message.conversation || message.message.extendedTextMessage?.text || '').trim();
+    const normalizedText = text.toLowerCase();
+    let state = userStates.get(chatId);
+
+    console.log('Incoming message:', { chatId, text, state: state ? state.step : 'none' });
+
+    // --- Universal Commands ---
+    if (['menu', 'start', 'help'].includes(normalizedText)) {
+        userStates.delete(chatId);
+        await showMainMenu(chatId);
+        return;
+    }
+    if (normalizedText === 'back' && state) {
+        await handleBackNavigation(chatId, state);
+        return;
+    }
+
+    // --- Conversation Routing ---
+    try {
+        const existingOrder = await Order.findOne({ 
+            userId: chatId, 
+            status: { $in: ['pending', 'processing'] }
+        }).sort({ createdAt: -1 });
+
+        if ((!state || state.step === 'in_conversation') && existingOrder) {
+            await handleExistingOrderConversation(chatId, text, existingOrder);
+            return;
+        }
+
+        if (!state) {
+            await showMainMenu(chatId);
+            return;
+        }
+
+        switch (state.step) {
+            case 'service_selection':
+                await handleServiceSelection(chatId, state, text);
+                break;
+            case 'order_confirmation':
+                await handleOrderConfirmation(chatId, state, text);
+                break;
+            default:
+                await safeSendMessage(chatId, { text: "Sorry, I'm not sure how to handle that. Type 'menu' to start over." });
                 userStates.delete(chatId);
-                const services = await Service.find({ parentId: null });
-                let reply = 'Welcome to Fx Cobra X Services! Here are our services:\n';
-                services.forEach((s, i) => { 
-                    reply += `${i+1}. ${s.name}\n`; 
-                });
-                reply += 'Reply with the number of your choice.';
-                
-                await safeSendMessage(chatId, { text: reply });
-                userStates.set(chatId, { step: 'service_selection', services });
-                return;
-            }
-            
-            // Add user message to the order as a customer reply
-            try {
-                const updatedOrder = await Order.findByIdAndUpdate(
-                    orderId,
-                    { 
-                        $push: { 
-                            adminReplies: { 
-                                message: text,
-                                timestamp: new Date(),
-                                isCustomer: true
-                            } 
-                        },
-                        $set: { 
-                            status: 'processing',
-                            updatedAt: new Date()
-                        }
-                    },
-                    { new: true }
-                );
-                
-                console.log('Customer reply added to ongoing conversation:', {
-                    orderId: updatedOrder._id,
-                    totalReplies: updatedOrder.adminReplies.length,
+                break;
+        }
                     latestReply: updatedOrder.adminReplies[updatedOrder.adminReplies.length - 1]
                 });
                 
