@@ -94,8 +94,13 @@ const safeSendMessage = async (jid, content, retries = 3) => {
 // --- Refactored Message Handling Logic ---
 
 async function showMainMenu(chatId, message = 'Welcome to Fx Cobra X! 🤖') {
+    const currency = await getActiveCurrency();
     const services = await Service.find({ parentId: null });
-    const serviceList = services.map((s, i) => `*${i + 1}.* ${s.name}`).join('\n');
+    const serviceList = services.map((s, i) => {
+        const priceString = s.price > 0 ? ` - ${currency.symbol}${s.price.toFixed(2)}` : '';
+        return `*${i + 1}.* ${s.name}${priceString}`;
+    }).join('\n');
+
     const fullMessage = `${message}\n\nHere are our main services. Reply with the number of your choice:\n\n${serviceList}\n\n--------------------\n_Type *help* for more options._`;
     await safeSendMessage(chatId, { text: fullMessage });
     userStates.set(chatId, { step: 'service_selection', services, navStack: [] });
@@ -140,7 +145,10 @@ async function handleServiceSelection(chatId, state, text) {
 
     // If it's a category, find its children
     if (subServices.length > 0) {
-        const serviceList = subServices.map((s, i) => `*${i + 1}.* ${s.name}`).join('\n');
+        const serviceList = subServices.map((s, i) => {
+            const priceString = s.price > 0 ? ` - ${currency.symbol}${s.price.toFixed(2)}` : '';
+            return `*${i + 1}.* ${s.name}${priceString}`;
+        }).join('\n');
         const message = `*${selectedService.name}*\n\nSelect an option below:\n\n${serviceList}\n\n--------------------\n_Type *back* to return to the previous menu._`;
         await safeSendMessage(chatId, { text: message });
         const navStack = state.navStack || [];
@@ -179,7 +187,12 @@ async function handleOrderConfirmation(chatId, state, text, message) {
             });
             await order.save();
 
-            await safeSendMessage(chatId, { text: `✅ *Order Confirmed!*\n\nYour order for *${service.name}* has been placed.\nOrder ID: *${order._id.toString().slice(-8)}*\n\nOur team will be in touch shortly. You can reply to this message to add comments to your order.` });
+            const breadcrumb = await getServiceBreadcrumb(service._id);
+            const servicePath = (breadcrumb && breadcrumb.length > 0) ? breadcrumb.join(' > ') : service.name;
+
+            await safeSendMessage(chatId, {
+                text: `✅ *Order Confirmed!*\n\n*Order ID:* ${order._id.toString().slice(-8)}\n*Service:* ${servicePath}\n*Price:* ${currency.symbol}${service.price.toFixed(2)}\n*Status:* Pending\n\nOur team will be in touch shortly. You can reply to this message to add comments to your order.`
+            });
             
             // Optional SMS Notification
             try {
