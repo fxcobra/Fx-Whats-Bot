@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const helpSchema = new mongoose.Schema({
     content: {
@@ -19,4 +19,4 @@ helpSchema.statics.findOneOrCreate = async function() {
 
 const Help = mongoose.model('Help', helpSchema);
 
-module.exports = Help;
+export default Help;
