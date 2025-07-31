@@ -260,78 +260,95 @@ async function handleExistingOrderConversation(chatId, text, existingOrder) {
     }
 }
 
-// Main Message Handler
 const handleMessage = async (message) => {
-    if (!message.message) return;
-
-    const chatId = message.key.remoteJid;
-    if (chatId.endsWith('@g.us') || chatId.endsWith('@broadcast')) return;
-
-    const text = (message.message.conversation || message.message.extendedTextMessage?.text || '').trim();
-    const normalizedText = text.toLowerCase();
-    let state = userStates.get(chatId);
-
-    console.log('Incoming message:', { chatId, text, state: state ? state.step : 'none' });
-
-    // --- Universal Commands ---
-    if (['menu', 'start', 'help'].includes(normalizedText)) {
-        userStates.delete(chatId);
-        await showMainMenu(chatId);
-        return;
-    }
-    if (normalizedText === 'back' && state) {
-        await handleBackNavigation(chatId, state);
-        return;
-    }
-
-    // --- Conversation Routing ---
     try {
-        const existingOrder = await Order.findOne({ 
-            userId: chatId, 
-            status: { $in: ['pending', 'processing'] }
+        const chatId = message.key.remoteJid;
+        const text = message.message?.conversation || message.message?.extendedTextMessage?.text || '';
+
+        if (!chatId || !text) {
+            return;
+        }
+
+        const state = userStates.get(chatId);
+        const lowerCaseText = text.toLowerCase().trim();
+
+        // 1. Handle 'close' command for existing conversations
+        if (state?.step === 'in_conversation' && ['close', 'end', 'done'].includes(lowerCaseText)) {
+            const orderId = state.orderId;
+            try {
+                const order = await Order.findById(orderId);
+                if (order) {
+                    order.status = 'completed'; // Or another status to indicate closure
+                    await order.save();
+                    io.emit('orderUpdated', { orderId: order._id, status: order.status });
+                }
+                await safeSendMessage(chatId, { text: "✅ Conversation closed. Thank you! Feel free to start a new order by typing 'menu'." });
+            } catch (error) {
+                console.error(`Error closing order ${orderId}:`, error);
+                await safeSendMessage(chatId, { text: "⚠️ Could not close the conversation due to an error. Please contact support." });
+            } finally {
+                userStates.delete(chatId);
+            }
+            return;
+        }
+
+        // 2. Handle existing order conversations
+        const existingOrder = await Order.findOne({
+            customer_whatsapp: chatId.split('@')[0],
+            status: { $in: ['pending', 'processing', 'awaiting_reply'] }
         }).sort({ createdAt: -1 });
 
-        if ((!state || state.step === 'in_conversation') && existingOrder) {
+        if (existingOrder && (!state || state.step === 'in_conversation')) {
+            if (!state) {
+                userStates.set(chatId, { step: 'in_conversation', orderId: existingOrder._id.toString() });
+            }
             await handleExistingOrderConversation(chatId, text, existingOrder);
             return;
         }
 
-        if (!state) {
+        // 3. Handle 'back' navigation
+        if (lowerCaseText === 'back' || lowerCaseText === 'go back') {
+            await handleBackNavigation(chatId, state);
+            return;
+        }
+
+        // 4. Handle 'menu' command to always show main menu
+        if (lowerCaseText === 'menu' || lowerCaseText === 'start') {
             await showMainMenu(chatId);
             return;
         }
 
-        switch (state.step) {
-            case 'service_selection':
-                await handleServiceSelection(chatId, state, text);
-                break;
-            case 'order_confirmation':
-                await handleOrderConfirmation(chatId, state, text);
-                break;
-            default:
-                await safeSendMessage(chatId, { text: "Sorry, I'm not sure how to handle that. Type 'menu' to start over." });
-                userStates.delete(chatId);
-                break;
+        // 5. Handle state-based navigation
+        if (state) {
+            switch (state.step) {
+                case 'service_selection':
+                    await handleServiceSelection(chatId, state, text);
+                    break;
+                case 'order_confirmation':
+                    await handleOrderConfirmation(chatId, state, text);
+                    break;
+                default:
+                    // If state is unknown, show main menu
+                    await showMainMenu(chatId, "Sorry, I got a bit lost. Let's start over from the main menu.");
+                    break;
+            }
+        } else {
+            // 6. Default to main menu if no state
+            await showMainMenu(chatId);
         }
-                    latestReply: updatedOrder.adminReplies[updatedOrder.adminReplies.length - 1]
-                });
-                
-                // Send acknowledgment to user
-                await safeSendMessage(chatId, { 
-                    text: `✅ Your message has been added to order #${orderId.toString().slice(-8)}.\n\n💬 Your message: "${text}"\n\nOur team will respond shortly. Type 'close' to end this conversation.`
-                });
-                
-            } catch (error) {
-                console.error('Error updating order with customer reply in conversation:', error);
-                await safeSendMessage(chatId, { 
-                    text: '⚠️ There was an error processing your message. Please try again.'
-                });
+    } catch (error) {
+        console.error('--- FATAL ERROR in handleMessage ---');
+        console.error(error);
+        const chatId = message.key.remoteJid;
+        if (chatId) {
+            try {
+                await safeSendMessage(chatId, { text: "🚨 Oops! Something went wrong on our end. Please type 'menu' to try again." });
+                userStates.delete(chatId); // Clear broken state
+            } catch (sendError) {
+                console.error('--- FATAL ERROR: Could not send error message to user ---');
+                console.error(sendError);
             }
         }
-        
-    } catch (error) {
-        console.error('Error in message handler:', error);
-        // Don't try to send error messages if connection is unstable
     }
 };
 
