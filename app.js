@@ -1,123 +1,106 @@
+// A new, robust app.js with extensive logging
+
+// --- 1. Early Logging & Environment Setup ---
+console.log('[App] Starting application...');
+import dotenv from 'dotenv';
+dotenv.config();
+console.log('[App] Environment variables loaded.');
+
+// --- 2. Imports ---
 import express from 'express';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import mongoose from 'mongoose';
 import session from 'express-session';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import adminRoutes from './routes/admin.js';
 import { connectToWhatsApp } from './whatsapp.js';
 
-// Make Express app globally accessible for WhatsApp event emission
+console.log('[App] All modules imported.');
 
-// Patch: always keep app.set('whatsappClient', sock) up-to-date
-function keepWhatsAppClientUpdated(app, sockPromise) {
-  sockPromise.then(sock => {
-    if (sock) app.set('whatsappClient', sock);
-    if (sock && sock.ev && sock.ev.on) {
-      sock.ev.on('connection.update', () => {
-        app.set('whatsappClient', sock);
-      });
-    }
-  });
-}
-
-import adminRoutes from './routes/admin.js';
-import 'dotenv/config';
-
-// ES Module fix for __dirname
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Initialize Express
-const app = express();
-
-// Make Express app globally accessible for WhatsApp event emission
-globalThis.expressApp = app;
-// Listen for WhatsApp authentication event and update session for current admin login
-app.on('wa-authenticated', (sock) => {
-  // This will only affect users on /admin/login route
-  // Use a shared in-memory flag to signal login completion
-  app.set('waJustAuthenticated', Date.now());
-});
-const PORT = process.env.PORT || 3000;
-
-// Middleware
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.set('view engine', 'ejs');
-app.set('views', path.join(__dirname, 'views'));
-
-// Trust proxy for secure cookies behind Render's proxy
-app.set('trust proxy', 1);
-
-// Session configuration
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-secret-key',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 24 * 60 * 60 * 1000 // 1 day
-  }
-}));
-
-// Make session available in all views
-app.use((req, res, next) => {
-  res.locals.session = req.session;
-  next();
+// --- 3. Uncaught Exception Handler ---
+process.on('uncaughtException', (err, origin) => {
+    console.error('!!!!!!!!!! UNCAUGHT EXCEPTION !!!!!!!!!!');
+    console.error(`[${origin}] ${err.stack}`);
 });
 
-// Serve static files from public directory
-app.use(express.static(path.join(__dirname, 'public'), {
-  setHeaders: (res, path) => {
-    // Set proper content type for CSS files
-    if (path.endsWith('.css')) {
-      res.setHeader('Content-Type', 'text/css');
-    }
-  }
-}));
+// --- 4. Main Application Setup ---
+try {
+    const app = express();
+    const PORT = process.env.PORT || 3000;
 
-// Add a route to handle favicon.ico to prevent 404 errors
-app.get('/favicon.ico', (req, res) => res.status(204).end());
+    // Get __dirname in ES modules
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
 
-// MongoDB Connection
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://buzinezz1379:buzinezz1379@cluster0.la5fj.mongodb.net/fx_cobra_bot?retryWrites=true&w=majority';
+    console.log('[App] Express app created.');
 
-// Set strictQuery to suppress deprecation warning
-mongoose.set('strictQuery', false);
-
-// Connect to MongoDB
-mongoose.connect(MONGODB_URI, { 
-  useNewUrlParser: true, 
-  useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 5000
-})
-.then(() => console.log('Connected to MongoDB'))
-.catch(err => console.error('MongoDB connection error:', err));
-
-// Routes
-app.use('/admin', adminRoutes);
-
-// Home route
-app.get('/', (req, res) => {
-  res.send('Fx Cobra X Bot is running!');
-});
-
-// Start server and connect to WhatsApp
-async function startServer() {
-  try {
-    // Initialize WhatsApp connection
-    // Always keep WhatsApp client reference up-to-date for session/auth
-    connectToWhatsApp(sock => app.set('whatsappClient', sock));
-    
-    // Start the server
-    app.listen(PORT, () => {
-      console.log(`Server running at http://localhost:${PORT}`);
+    // --- 5. Database Connection ---
+    console.log('[DB] Attempting to connect to MongoDB...');
+    mongoose.connect(process.env.MONGODB_URI, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+    }).then(() => {
+        console.log('[DB] MongoDB connected successfully.');
+    }).catch(err => {
+        console.error('[DB] MongoDB connection error:', err);
+        process.exit(1); // Exit if DB connection fails
     });
-  } catch (error) {
-    console.error('Failed to start server:', error);
-    process.exit(1);
-  }
-}
 
-// Start the application
-startServer();
+    // --- 6. Middleware ---
+    app.use(express.json());
+    app.use(express.urlencoded({ extended: true }));
+    app.use(session({
+        secret: process.env.SESSION_SECRET || 'a-very-strong-secret-key',
+        resave: false,
+        saveUninitialized: true,
+        cookie: { secure: false } // Set to true if using HTTPS
+    }));
+    console.log('[App] Core middleware configured.');
+
+    // --- 7. View Engine ---
+    app.set('view engine', 'ejs');
+    app.set('views', path.join(__dirname, 'views'));
+    console.log('[App] View engine (EJS) configured.');
+
+    // --- 8. Static Files ---
+    app.use(express.static(path.join(__dirname, 'public')));
+    console.log('[App] Static file directory configured.');
+
+    // --- 9. WhatsApp Client Initialization ---
+    console.log('[WhatsApp] Initializing WhatsApp connection...');
+    connectToWhatsApp((sock) => {
+        console.log('[WhatsApp] Connection successful. Socket is ready.');
+        app.set('whatsappClient', sock);
+
+        // Set a flag for the login route to detect fresh authentications
+        sock.ev.on('creds.update', (update) => {
+            if (update.me) {
+                 console.log('[WhatsApp] Authentication successful. Setting flag.');
+                 app.set('waJustAuthenticated', Date.now());
+            }
+        });
+
+    }).catch(err => {
+        console.error('[WhatsApp] Failed to initialize WhatsApp connection:', err);
+    });
+
+    // --- 10. Routes ---
+    app.use('/admin', adminRoutes);
+    console.log('[App] Admin routes mounted.');
+
+    // Root route
+    app.get('/', (req, res) => {
+        res.redirect('/admin/login');
+    });
+
+    // --- 11. Start Server ---
+    app.listen(PORT, () => {
+        console.log(`\n🚀 Server is running and listening on http://localhost:${PORT}`);
+        console.log(`   Admin panel: http://localhost:${PORT}/admin/login`);
+    });
+
+} catch (error) {
+    console.error('!!!!!!!!!! FATAL STARTUP ERROR !!!!!!!!!!');
+    console.error(error.stack);
+    process.exit(1);
+}
