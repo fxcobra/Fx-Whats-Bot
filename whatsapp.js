@@ -263,7 +263,21 @@ const handleMessage = async (message) => {
         const state = userStates.get(chatId);
         const lowerCaseText = text.toLowerCase().trim();
 
-        // 1. Handle 'close' command for existing conversations
+        // 1. Check for an existing order first, unless the user is in the middle of a new order.
+        const isMakingNewOrder = state && (state.step === 'service_selection' || state.step === 'order_confirmation');
+        if (!isMakingNewOrder) {
+            const existingOrder = await Order.findOne({
+                customer_whatsapp: chatId.split('@')[0],
+                status: { $in: ['pending', 'processing', 'awaiting_reply'] }
+            }).sort({ createdAt: -1 });
+
+            if (existingOrder) {
+                await handleExistingOrderConversation(chatId, text, existingOrder, message);
+                return;
+            }
+        }
+
+        // 2. Handle 'close' command for existing conversations
         if (state?.step === 'in_conversation' && ['close', 'end', 'done'].includes(lowerCaseText)) {
             const orderId = state.orderId;
             try {
@@ -283,19 +297,7 @@ const handleMessage = async (message) => {
             return;
         }
 
-        // 2. Handle existing order conversations
-        const existingOrder = await Order.findOne({
-            customer_whatsapp: chatId.split('@')[0],
-            status: { $in: ['pending', 'processing', 'awaiting_reply'] }
-        }).sort({ createdAt: -1 });
 
-        if (existingOrder && (!state || state.step === 'in_conversation')) {
-            if (!state) {
-                userStates.set(chatId, { step: 'in_conversation', orderId: existingOrder._id.toString() });
-            }
-            await handleExistingOrderConversation(chatId, text, existingOrder, message);
-            return;
-        }
 
         // 3. Handle 'back' navigation
         if (lowerCaseText === 'back' || lowerCaseText === 'go back') {
