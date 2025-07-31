@@ -193,6 +193,9 @@ async function handleOrderConfirmation(chatId, state, text, message) {
             await safeSendMessage(chatId, {
                 text: `✅ *Order Confirmed!*\n\n*Order ID:* ${order._id.toString().slice(-8)}\n*Service:* ${servicePath}\n*Price:* ${currency.symbol}${service.price.toFixed(2)}\n*Status:* Pending\n\nOur team will be in touch shortly. You can reply to this message to add comments to your order.`
             });
+
+            // CRITICAL: Clear the user's state after order confirmation.
+            userStates.delete(chatId);
             
             // Optional SMS Notification
             try {
@@ -206,8 +209,6 @@ async function handleOrderConfirmation(chatId, state, text, message) {
                 console.error('[SMS] Unexpected error:', err.message);
             }
 
-            userStates.delete(chatId);
-
         } catch (error) {
             console.error('Error creating order:', error);
             await safeSendMessage(chatId, { text: "🚨 Sorry, there was an error placing your order. Please try again." });
@@ -219,30 +220,6 @@ async function handleOrderConfirmation(chatId, state, text, message) {
     } else {
         // --- Invalid Input ---
         await safeSendMessage(chatId, { text: "⚠️ Invalid input. Please reply with *'1'* to confirm or *'0'* to go back." });
-    }
-}
-
-async function handleExistingOrderConversation(chatId, text, existingOrder, message) {
-    const normalizedText = text.toLowerCase().trim();
-
-    if (['close', 'end', 'done'].includes(normalizedText)) {
-        await Order.findByIdAndUpdate(existingOrder._id, { $set: { status: 'pending' } });
-        await safeSendMessage(chatId, { text: `✅ Order #${existingOrder._id.toString().slice(-8)} conversation closed. Type 'menu' to start a new order.` });
-        userStates.delete(chatId);
-        return;
-    }
-
-    try {
-        await Order.findByIdAndUpdate(existingOrder._id, {
-            $push: { adminReplies: { message: text, timestamp: new Date(), isCustomer: true } },
-            $set: { status: 'processing', updatedAt: new Date() }
-        }, { new: true });
-
-        await safeSendMessage(chatId, { text: `✅ Your message has been added to order #${existingOrder._id.toString().slice(-8)}. Our team will respond shortly. Type 'close' to end this conversation.` });
-        userStates.set(chatId, { step: 'in_conversation', orderId: existingOrder._id });
-    } catch (error) {
-        console.error('Error updating order with customer reply:', error);
-                await safeSendMessage(chatId, { text: '⚠️ There was an error processing your message. Please try again.' });
     }
 }
 
@@ -260,42 +237,37 @@ const handleMessage = async (message) => {
             return;
         }
 
-        const state = userStates.get(chatId);
         const lowerCaseText = text.toLowerCase().trim();
 
-        // 1. Check for an existing order first, unless the user is in the middle of a new order.
-        const isMakingNewOrder = state && (state.step === 'service_selection' || state.step === 'order_confirmation');
-        if (!isMakingNewOrder) {
-            const existingOrder = await Order.findOne({
-                customer_whatsapp: chatId.split('@')[0],
-                status: { $in: ['pending', 'processing', 'awaiting_reply'] }
-            }).sort({ createdAt: -1 });
+        // --- Definitive Logic Flow ---
 
-            if (existingOrder) {
-                await handleExistingOrderConversation(chatId, text, existingOrder, message);
-                return;
+        // 1. Check for an active order conversation in the database.
+        const activeOrder = await Order.findOne({
+            customer_whatsapp: chatId.split('@')[0],
+            status: { $in: ['pending', 'processing', 'awaiting_reply'] }
+        }).sort({ createdAt: -1 });
+
+        if (activeOrder) {
+            // If an order is active, we are in 'conversation mode'.
+            if (['close', 'end', 'done'].includes(lowerCaseText)) {
+                await Order.findByIdAndUpdate(activeOrder._id, { $set: { status: 'completed' } });
+                await safeSendMessage(chatId, { text: '✅ Conversation closed.' });
+            } else {
+                await Order.findByIdAndUpdate(activeOrder._id, {
+                    $push: { adminReplies: { message: text, isCustomer: true, timestamp: new Date() } },
+                    $set: { status: 'awaiting_reply' }
+                });
+                await safeSendMessage(chatId, { text: `✅ Message received. (Type 'close' to end)` });
             }
+            userStates.delete(chatId);
+            return; // IMPORTANT: Stop all further processing.
         }
 
-        // 2. Handle 'close' command for existing conversations
-        if (state?.step === 'in_conversation' && ['close', 'end', 'done'].includes(lowerCaseText)) {
-            const orderId = state.orderId;
-            try {
-                const order = await Order.findById(orderId);
-                if (order) {
-                    order.status = 'completed'; // Or another status to indicate closure
-                    await order.save();
-                    io.emit('orderUpdated', { orderId: order._id, status: order.status });
-                }
-                await safeSendMessage(chatId, { text: "✅ *Conversation Closed*\n\nThank you! Feel free to start a new order by typing *menu*." });
-            } catch (error) {
-                console.error(`Error closing order ${orderId}:`, error);
-                await safeSendMessage(chatId, { text: "🚨 *Error!*\nCould not close the conversation. Please contact support." });
-            } finally {
-                userStates.delete(chatId);
-            }
-            return;
-        }
+        // 2. If NO active order exists, proceed with menu navigation logic.
+        const state = userStates.get(chatId);
+
+        // 3. If not in a conversation, proceed with normal menu navigation.
+        // This block will now only be reached if the user has no active orders, or is actively creating a new one.
 
 
 

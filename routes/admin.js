@@ -279,7 +279,7 @@ router.get('/dashboard', async (req, res) => {
   const recentOrders = await Order.find()
             .sort({ createdAt: -1 })
             .limit(10)
-            .populate('serviceId'); // Populate the service details
+            .populate('serviceId', 'name price'); // Explicitly populate service name and price
   // Only completed orders for revenue
   const completedOrders = await Order.find({ status: 'completed' });
   const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
