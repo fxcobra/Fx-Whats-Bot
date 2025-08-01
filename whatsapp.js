@@ -132,10 +132,9 @@ async function handleServiceSelection(chatId, state, text) {
     }
 
     const selectedService = state.services[choice - 1];
-    const subServices = await Service.find({ parentId: selectedService._id });
     const currency = await getActiveCurrency();
 
-    // If the selected service has a price, it's orderable directly
+    // If the selected service has a price, it's directly orderable.
     if (selectedService.price && selectedService.price > 0) {
         const confirmationMessage = `🛒 *Confirm Your Order*\n\nYou have selected *${selectedService.name}*.\nPrice: *${currency.symbol}${selectedService.price.toFixed(2)}*\n\n--------------------\nReply *'1'* to Confirm\nReply *'0'* to Go Back`;
         await safeSendMessage(chatId, { text: confirmationMessage });
@@ -143,20 +142,33 @@ async function handleServiceSelection(chatId, state, text) {
         return;
     }
 
-    // If it's a category, find its children
+    // If it's a category (no price), find its immediate children.
+    const subServices = await Service.find({ parentId: selectedService._id }).lean();
+
     if (subServices.length > 0) {
+        // Display immediate children (subcategories or services).
         const serviceList = subServices.map((s, i) => {
             const priceString = s.price > 0 ? ` - ${currency.symbol}${s.price.toFixed(2)}` : '';
             return `*${i + 1}.* ${s.name}${priceString}`;
         }).join('\n');
         const message = `*${selectedService.name}*\n\nSelect an option below:\n\n${serviceList}\n\n--------------------\n_Type *back* to return to the previous menu._`;
         await safeSendMessage(chatId, { text: message });
+
         const navStack = state.navStack || [];
-        navStack.push(state); // Save current state for back navigation
+        navStack.push(state); // Save current state for 'back' navigation.
         userStates.set(chatId, { step: 'service_selection', services: subServices, navStack });
     } else {
-        await safeSendMessage(chatId, { text: `🤷‍♂️ *No further services here.* This category is empty.` });
-        await showMainMenu(chatId);
+        // If there are no immediate children, check if the category contains any orderable services in nested subcategories.
+        const isOrderable = await hasOrderableServices(selectedService._id);
+        if (isOrderable) {
+            // This case should ideally not be reached if the menu is structured well, but as a fallback:
+            await safeSendMessage(chatId, { text: `Please navigate further to find an orderable service.` });
+        } else {
+            // The category and all its subcategories are empty or contain no orderable items.
+            await safeSendMessage(chatId, { text: `🤷‍♂️ *No orderable services found under '${selectedService.name}'.*` });
+        }
+        // Return to the previous menu or main menu to avoid getting stuck.
+        await handleBackNavigation(chatId, state);
     }
 }
 
@@ -242,10 +254,17 @@ const handleMessage = async (message) => {
         // --- Definitive Logic Flow ---
 
         // 1. Check for an active order conversation in the database.
+        console.log(`[CONVO_CHECK] Searching for active order for ${chatId}...`);
         const activeOrder = await Order.findOne({
             customer_whatsapp: chatId.split('@')[0],
-            status: { $in: ['pending', 'processing', 'awaiting_reply'] }
+            status: { $in: ['pending', 'processing', 'awaiting_reply', 'confirmed'] } // Added 'confirmed'
         }).sort({ createdAt: -1 });
+
+        if (activeOrder) {
+            console.log(`[CONVO_CHECK] Active order found (ID: ${activeOrder._id}, Status: ${activeOrder.status}). Treating as reply.`);
+        } else {
+            console.log(`[CONVO_CHECK] No active order found. Proceeding with menu logic.`);
+        }
 
         if (activeOrder) {
             // If an order is active, we are in 'conversation mode'.
