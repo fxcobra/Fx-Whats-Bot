@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import Order from './models/Order.js';
 import Service from './models/Service.js';
+import SmsSetting from './models/SmsSetting.js';
 import QuickReply from './models/QuickReply.js';
 import Help from './models/Help.js';
 import { hasOrderableServices, getServiceBreadcrumb } from './serviceUtils.js';
@@ -187,7 +188,6 @@ async function handleOrderConfirmation(chatId, state, text, message) {
         }
 
         try {
-            console.log('[ORDER_DEBUG] Creating order with service object:', JSON.stringify(service, null, 2));
             const order = new Order({
                 userId: chatId,
                 serviceId: service._id,
@@ -214,11 +214,10 @@ async function handleOrderConfirmation(chatId, state, text, message) {
             
             // Optional SMS Notification
             try {
-                const smsText = `New Order: ${service.name} (${currency.symbol}${service.price.toFixed(2)}) from ${chatId.split('@')[0]}`;
-                const smsSettingsPath = path.resolve(process.cwd(), 'smsSettings.json');
-                if (fs.existsSync(smsSettingsPath)) {
-                    const smsConfig = JSON.parse(fs.readFileSync(smsSettingsPath, 'utf8'));
-                    sendSMS(smsText, smsConfig).catch(err => console.error('[SMS] Error sending notification:', err.message));
+                const smsSettings = await SmsSetting.findOneOrCreate();
+                if (smsSettings && smsSettings.apiKey && smsSettings.sender && smsSettings.recipient) {
+                    const smsText = `New Order: ${service.name} (${currency.symbol}${service.price.toFixed(2)}) from ${chatId.split('@')[0]}`;
+                    sendSMS(smsText, smsSettings).catch(err => console.error('[SMS] Error sending notification:', err.message));
                 }
             } catch (err) {
                 console.error('[SMS] Unexpected error:', err.message);

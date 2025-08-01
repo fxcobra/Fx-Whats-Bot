@@ -4,9 +4,11 @@ const router = express.Router();
 import mongoose from 'mongoose';
 import Service from '../models/Service.js';
 import Order from '../models/Order.js';
-import Currency from '../models/Currency.js'; // Import Currency model
-import QuickReply from '../models/QuickReply.js'; // Import QuickReply model
+import Currency from '../models/Currency.js';
+import QuickReply from '../models/QuickReply.js';
 import Help from '../models/Help.js';
+import MomoSetting from '../models/MomoSetting.js';
+import SmsSetting from '../models/SmsSetting.js';
 import formatPrice from '../formatPrice.js';
 import adminAuth from '../middleware/adminAuth.js';
 import panelAuth, { verifyPanelLogin } from '../middleware/panelAuth.js';
@@ -126,86 +128,66 @@ router.get('/logout', async (req, res) => {
 // IMPORTANT: Move this AFTER login/logout routes so login is not protected by adminAuth
 router.use(adminAuth);
 
-// SMS settings utility
-import fs from 'fs';
-import path from 'path';
-const smsSettingsPath = path.resolve(process.cwd(), 'smsSettings.json');
-const momoSettingsPath = path.resolve(process.cwd(), 'momoSettings.json');
 
-// Utility to load MoMo settings
-function loadMomoSettings() {
-    try {
-        if (!fs.existsSync(momoSettingsPath)) {
-            fs.writeFileSync(momoSettingsPath, JSON.stringify({ environment: 'sandbox', apiUser: '', apiKey: '', subscriptionKey: '', currency: 'EUR' }, null, 2));
-        }
-        return JSON.parse(fs.readFileSync(momoSettingsPath, 'utf8'));
-    } catch (e) {
-        console.error('[Settings] Error loading momoSettings.json:', e);
-        return { environment: 'sandbox', apiUser: '', apiKey: '', subscriptionKey: '', currency: 'EUR' };
-    }
-}
-
-// Utility to save MoMo settings
-function saveMomoSettings(settings) {
-    try {
-        fs.writeFileSync(momoSettingsPath, JSON.stringify(settings, null, 2));
-        return true;
-    } catch (e) {
-        console.error('[Settings] Error saving momoSettings.json:', e);
-        return false;
-    }
-}
 
 // Admin settings page (GET)
 router.get('/settings', async (req, res) => {
-  let smsSettings = {};
-  let momoSettings = loadMomoSettings();
-  try {
-    if (fs.existsSync(smsSettingsPath)) {
-      smsSettings = JSON.parse(fs.readFileSync(smsSettingsPath, 'utf8'));
-    }
-  } catch { smsSettings = {}; }
-  const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
-  const help = await Help.findOneOrCreate();
-  res.render('admin/settings', { currencies: [], quickReplies: [], smsSettings, smsAlert: null, currency: activeCurrency, momoSettings, help });
+    const smsSettings = await SmsSetting.findOneOrCreate();
+    const momoSettings = await MomoSetting.findOneOrCreate();
+    const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
+    const help = await Help.findOneOrCreate();
+    res.render('admin/settings', { 
+        currencies: [], 
+        quickReplies: [], 
+        smsSettings, 
+        momoSettings, 
+        help, 
+        currency: activeCurrency, 
+        smsAlert: null, 
+        success: null, 
+        error: null 
+    });
 });
 
 // Admin settings page (POST MoMo settings)
 router.post('/settings/momo', async (req, res) => {
-  const { environment, apiUser, apiKey, subscriptionKey, currency } = req.body;
-  const momoSettings = { environment, apiUser, apiKey, subscriptionKey, currency };
-  let success = null;
-  let error = null;
-  if (!environment || !apiUser || !apiKey || !subscriptionKey || !currency) {
-    error = 'All fields are required for MoMo settings.';
-  } else if (!['sandbox', 'production'].includes(environment)) {
-    error = 'Invalid environment selected.';
-  } else {
-    if (saveMomoSettings(momoSettings)) {
-      success = 'MTN MoMo settings saved successfully.';
+    const { environment, apiUser, apiKey, subscriptionKey, currency } = req.body;
+    let success = null;
+    let error = null;
+
+    if (!environment || !apiUser || !apiKey || !subscriptionKey || !currency) {
+        error = 'All fields are required for MoMo settings.';
+    } else if (!['sandbox', 'production'].includes(environment)) {
+        error = 'Invalid environment selected.';
     } else {
-      error = 'Failed to save MTN MoMo settings.';
+        try {
+            await MomoSetting.findOneAndUpdate({}, 
+                { environment, apiUser, apiKey, subscriptionKey, currency }, 
+                { upsert: true, new: true, setDefaultsOnInsert: true });
+            success = 'MTN MoMo settings saved successfully.';
+        } catch (e) {
+            console.error('[Settings] Error saving MoMo settings:', e);
+            error = 'Failed to save MTN MoMo settings.';
+        }
     }
-  }
-  let smsSettings = {};
-  try {
-    if (fs.existsSync(smsSettingsPath)) {
-      smsSettings = JSON.parse(fs.readFileSync(smsSettingsPath, 'utf8'));
-    }
-  } catch { smsSettings = {}; }
-  const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
-  const help = await Help.findOneOrCreate();
-  res.render('admin/settings', {
-    currencies: [],
-    quickReplies: [],
-    smsSettings,
-    smsAlert: null,
-    currency: activeCurrency,
-    momoSettings,
-    help,
-    success,
-    error
-  });
+
+    // Reload all settings to re-render the page
+    const smsSettings = await SmsSetting.findOneOrCreate();
+    const momoSettings = await MomoSetting.findOneOrCreate();
+    const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
+    const help = await Help.findOneOrCreate();
+
+    res.render('admin/settings', {
+        currencies: [],
+        quickReplies: [],
+        smsSettings,
+        momoSettings,
+        help,
+        currency: activeCurrency,
+        smsAlert: null,
+        success,
+        error
+    });
 });
 
 // Admin settings page (POST Help Message)
@@ -254,18 +236,36 @@ router.post('/settings/help', async (req, res) => {
 
 // Admin settings page (POST SMS settings)
 router.post('/settings/sms', async (req, res) => {
-  const { apiKey, sender, recipient } = req.body;
-  let smsSettings = { apiKey, sender, recipient };
-  let smsAlert = null;
-  try {
-    fs.writeFileSync(smsSettingsPath, JSON.stringify(smsSettings, null, 2));
-    smsAlert = { type: 'success', message: 'SMS settings updated successfully.' };
-  } catch (e) {
-    smsAlert = { type: 'danger', message: 'Failed to save SMS settings.' };
-  }
-  const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
-  const help = await Help.findOneOrCreate();
-  res.render('admin/settings', { currencies: [], quickReplies: [], smsSettings, smsAlert, currency: activeCurrency, help });
+    const { apiKey, sender, recipient } = req.body;
+    let smsAlert = null;
+
+    try {
+        await SmsSetting.findOneAndUpdate({}, 
+            { apiKey, sender, recipient }, 
+            { upsert: true, new: true, setDefaultsOnInsert: true });
+        smsAlert = { type: 'success', message: 'SMS settings updated successfully.' };
+    } catch (e) {
+        console.error('[Settings] Error saving SMS settings:', e);
+        smsAlert = { type: 'danger', message: 'Failed to save SMS settings.' };
+    }
+
+    // Reload all settings to re-render the page
+    const smsSettings = await SmsSetting.findOneOrCreate();
+    const momoSettings = await MomoSetting.findOneOrCreate();
+    const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
+    const help = await Help.findOneOrCreate();
+
+    res.render('admin/settings', {
+        currencies: [],
+        quickReplies: [],
+        smsSettings,
+        momoSettings,
+        help,
+        currency: activeCurrency,
+        smsAlert,
+        success: null,
+        error: null
+    });
 });
 
 // Root admin route - redirect to dashboard
