@@ -167,7 +167,7 @@
                                 </td>
                                 <td>
                                     <span class="fw-bold text-success">
-    <%= order.price ? `${currency.symbol}${order.price.toFixed(2)}` : 'N/A' %>
+    <%= typeof order.total !== 'undefined' && order.total !== null ? `${currency.symbol}${order.total.toFixed(2)}` : 'N/A' %>
 </span>
                                 </td>
                                 <td>
@@ -281,7 +281,7 @@ document.getElementById('bulkDeleteBtn').addEventListener('click', function(e) {
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Order:</label>
-                            <div class="text-muted"><%= order.serviceName %> - <%= currency.symbol %><%= order.price %></div>
+                            <div class="text-muted"><%= order.serviceName %> - <%= currency.symbol %><%= order.total %></div>
                         </div>
                         <div class="mb-3">
                             <label for="reply<%= order._id %>" class="form-label">Message:</label>
