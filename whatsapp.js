@@ -261,8 +261,8 @@ const handleMessage = async (message) => {
         // 1. Check for an active order conversation in the database.
         console.log(`[CONVO_CHECK] Searching for active order for ${chatId}...`);
         const activeOrder = await Order.findOne({
-            customer_whatsapp: chatId.split('@')[0],
-            status: { $in: ['pending', 'processing', 'awaiting_reply', 'confirmed'] } // Added 'confirmed'
+            userId: chatId, // Corrected from customer_whatsapp
+            status: { $in: ['pending', 'processing', 'awaiting_reply', 'confirmed'] } 
         }).sort({ createdAt: -1 });
 
         if (activeOrder) {

@@ -277,9 +277,9 @@ router.get('/', (req, res) => {
 router.get('/dashboard', async (req, res) => {
   // All recent orders for table
   const recentOrders = await Order.find()
+            .populate('serviceId') // This will fetch the service details
             .sort({ createdAt: -1 })
-            .limit(10)
-            .populate('serviceId', 'name price'); // Explicitly populate service name and price
+            .limit(10);
   // Only completed orders for revenue
   const completedOrders = await Order.find({ status: 'completed' });
   const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
@@ -535,10 +535,10 @@ router.get('/orders', async (req, res) => {
     const totalOrders = await Order.countDocuments(query);
     const { getServiceBreadcrumb } = await import('../serviceUtils.js');
     const orders = await Order.find(query)
+      .populate('serviceId') // This fetches the service details, including price
       .sort({ createdAt: -1 })
       .skip((page - 1) * pageSize)
       .limit(pageSize)
-      .populate('serviceId', 'name price')
       .lean();
     for (const order of orders) {
       if (order.serviceId) {
