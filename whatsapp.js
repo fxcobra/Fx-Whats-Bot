@@ -3,8 +3,6 @@ import { makeWASocket, DisconnectReason, useMultiFileAuthState, delay, makeCache
 import pino from 'pino';
 import qrcode from 'qrcode-terminal';
 import { qrToDataURL } from './browserQr.js';
-import fs from 'fs';
-import path from 'path';
 import Order from './models/Order.js';
 import Service from './models/Service.js';
 import SmsSetting from './models/SmsSetting.js';

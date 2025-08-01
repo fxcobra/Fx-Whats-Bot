@@ -132,140 +132,82 @@ router.use(adminAuth);
 
 // Admin settings page (GET)
 router.get('/settings', async (req, res) => {
-    const smsSettings = await SmsSetting.findOneOrCreate();
-    const momoSettings = await MomoSetting.findOneOrCreate();
-    const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
-    const help = await Help.findOneOrCreate();
-    res.render('admin/settings', { 
-        currencies: [], 
-        quickReplies: [], 
-        smsSettings, 
-        momoSettings, 
-        help, 
-        currency: activeCurrency, 
-        smsAlert: null, 
-        success: null, 
-        error: null 
-    });
+    try {
+        const smsSettings = await SmsSetting.findOneOrCreate();
+        const momoSettings = await MomoSetting.findOneOrCreate();
+        const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
+        const help = await Help.findOneOrCreate();
+        res.render('admin/settings', { 
+            currencies: [], 
+            quickReplies: [], 
+            smsSettings, 
+            momoSettings, 
+            help, 
+            currency: activeCurrency, 
+            smsAlert: req.flash('smsAlert')[0],
+            success: req.flash('success')[0],
+            error: req.flash('error')[0]
+        });
+    } catch (e) {
+        console.error('[Settings] Error loading settings page:', e);
+        res.status(500).send('Error loading settings page.');
+    }
 });
 
 // Admin settings page (POST MoMo settings)
 router.post('/settings/momo', async (req, res) => {
     const { environment, apiUser, apiKey, subscriptionKey, currency } = req.body;
-    let success = null;
-    let error = null;
 
     if (!environment || !apiUser || !apiKey || !subscriptionKey || !currency) {
-        error = 'All fields are required for MoMo settings.';
+        req.flash('error', 'All fields are required for MoMo settings.');
     } else if (!['sandbox', 'production'].includes(environment)) {
-        error = 'Invalid environment selected.';
+        req.flash('error', 'Invalid environment selected.');
     } else {
         try {
             await MomoSetting.findOneAndUpdate({}, 
                 { environment, apiUser, apiKey, subscriptionKey, currency }, 
                 { upsert: true, new: true, setDefaultsOnInsert: true });
-            success = 'MTN MoMo settings saved successfully.';
+            req.flash('success', 'MTN MoMo settings saved successfully.');
         } catch (e) {
             console.error('[Settings] Error saving MoMo settings:', e);
-            error = 'Failed to save MTN MoMo settings.';
+            req.flash('error', 'Failed to save MTN MoMo settings.');
         }
     }
-
-    // Reload all settings to re-render the page
-    const smsSettings = await SmsSetting.findOneOrCreate();
-    const momoSettings = await MomoSetting.findOneOrCreate();
-    const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
-    const help = await Help.findOneOrCreate();
-
-    res.render('admin/settings', {
-        currencies: [],
-        quickReplies: [],
-        smsSettings,
-        momoSettings,
-        help,
-        currency: activeCurrency,
-        smsAlert: null,
-        success,
-        error
-    });
+    res.redirect('/admin/settings');
 });
 
 // Admin settings page (POST Help Message)
 router.post('/settings/help', async (req, res) => {
     const { content } = req.body;
-    let success = null;
-    let error = null;
-
     try {
         if (!content || content.trim() === '') {
-            error = 'Help message content cannot be empty.';
+            req.flash('error', 'Help message content cannot be empty.');
         } else {
             const help = await Help.findOneOrCreate();
             help.content = content;
             await help.save();
-            success = 'Help message updated successfully.';
+            req.flash('success', 'Help message updated successfully.');
         }
     } catch (e) {
         console.error('[Settings] Error saving help message:', e);
-        error = 'Failed to save help message.';
+        req.flash('error', 'Failed to save help message.');
     }
-
-    // Reload all settings to re-render the page
-    let smsSettings = {};
-    let momoSettings = loadMomoSettings();
-    try {
-        if (fs.existsSync(smsSettingsPath)) {
-            smsSettings = JSON.parse(fs.readFileSync(smsSettingsPath, 'utf8'));
-        }
-    } catch { smsSettings = {}; }
-    const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
-    const help = await Help.findOneOrCreate();
-
-    res.render('admin/settings', {
-        currencies: [], 
-        quickReplies: [], 
-        smsSettings,
-        smsAlert: null,
-        currency: activeCurrency,
-        momoSettings,
-        help,
-        success,
-        error
-    });
+    res.redirect('/admin/settings');
 });
 
 // Admin settings page (POST SMS settings)
 router.post('/settings/sms', async (req, res) => {
     const { apiKey, sender, recipient } = req.body;
-    let smsAlert = null;
-
     try {
         await SmsSetting.findOneAndUpdate({}, 
             { apiKey, sender, recipient }, 
             { upsert: true, new: true, setDefaultsOnInsert: true });
-        smsAlert = { type: 'success', message: 'SMS settings updated successfully.' };
+        req.flash('smsAlert', JSON.stringify({ type: 'success', message: 'SMS settings updated successfully.' }));
     } catch (e) {
         console.error('[Settings] Error saving SMS settings:', e);
-        smsAlert = { type: 'danger', message: 'Failed to save SMS settings.' };
+        req.flash('smsAlert', JSON.stringify({ type: 'danger', message: 'Failed to save SMS settings.' }));
     }
-
-    // Reload all settings to re-render the page
-    const smsSettings = await SmsSetting.findOneOrCreate();
-    const momoSettings = await MomoSetting.findOneOrCreate();
-    const activeCurrency = await Currency.findOne({ isActive: true }) || { symbol: '$', code: 'USD' };
-    const help = await Help.findOneOrCreate();
-
-    res.render('admin/settings', {
-        currencies: [],
-        quickReplies: [],
-        smsSettings,
-        momoSettings,
-        help,
-        currency: activeCurrency,
-        smsAlert,
-        success: null,
-        error: null
-    });
+    res.redirect('/admin/settings');
 });
 
 // Root admin route - redirect to dashboard
