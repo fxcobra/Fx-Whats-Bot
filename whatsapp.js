@@ -195,7 +195,12 @@ async function handleOrderConfirmation(chatId, state, text, message) {
                 status: 'pending',
                 total: service.price,
                 currency: currency.code,
-                message: `Order for ${service.name}`
+                message: `Order for ${service.name}`,
+                adminReplies: [{
+                    message: `Order for ${service.name}`,
+                    isCustomer: true,
+                    timestamp: new Date()
+                }]
             });
             await order.save();
 
