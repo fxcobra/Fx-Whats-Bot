@@ -187,14 +187,12 @@ async function handleOrderConfirmation(chatId, state, text, message) {
         }
 
         try {
+            console.log('[ORDER_DEBUG] Creating order with service object:', JSON.stringify(service, null, 2));
             const order = new Order({
                 userId: chatId,
                 serviceId: service._id,
-                customer_name: message.key.fromMe ? 'Admin' : (message.pushName || 'N/A'),
-                customer_whatsapp: chatId.split('@')[0],
-                status: 'pending',
-                total: service.price,
-                currency: currency.code,
+                serviceName: service.name, // Storing the name for easy access
+                price: service.price, // Correctly using the 'price' field
                 message: `Order for ${service.name}`,
                 adminReplies: [{
                     message: `Order for ${service.name}`,
@@ -306,8 +304,8 @@ const handleMessage = async (message) => {
         if (activeOrder) {
             console.log(`[CONVO_CHECK] Active order found (ID: ${activeOrder._id}). Treating as reply.`);
             if (['close', 'end', 'done'].includes(lowerCaseText)) {
-                await Order.findByIdAndUpdate(activeOrder._id, { $set: { status: 'completed' } });
-                await safeSendMessage(chatId, { text: '✅ Conversation closed.' });
+                await Order.findByIdAndUpdate(activeOrder._id, { $set: { status: 'pending' } });
+                await safeSendMessage(chatId, { text: '✅ Conversation closed. \n Type menu to return to main menu.' });
             } else {
                 await Order.findByIdAndUpdate(activeOrder._id, {
                     $push: { adminReplies: { message: text, isCustomer: true, timestamp: new Date() } },
