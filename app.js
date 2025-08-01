@@ -12,7 +12,7 @@ import mongoose from 'mongoose';
 import session from 'express-session';
 import path from 'path';
 import { fileURLToPath } from 'url';
-// import adminRoutes from './routes/admin.js'; // Temporarily disabled for debugging
+import adminRoutes from './routes/admin.js';
 // import { connectToWhatsApp } from './whatsapp.js'; // Temporarily disabled for debugging
 
 console.log('[App] All modules imported.');
@@ -69,9 +69,9 @@ try {
     // --- 9. WhatsApp Client Initialization (Temporarily Disabled) ---
     console.log('[WhatsApp] Initialization skipped for debugging.');
 
-    // --- 10. Routes (Temporarily Disabled) ---
-    // app.use('/admin', adminRoutes);
-    console.log('[App] Admin routes skipped for debugging.');
+    // --- 10. Routes ---
+    app.use('/admin', adminRoutes);
+    console.log('[App] Admin routes mounted.');
 
     // Root route
     app.get('/', (req, res) => {
