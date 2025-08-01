@@ -13,7 +13,7 @@ import session from 'express-session';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import adminRoutes from './routes/admin.js';
-// import { connectToWhatsApp } from './whatsapp.js'; // Temporarily disabled for debugging
+import { connectToWhatsApp } from './whatsapp.js';
 
 console.log('[App] All modules imported.');
 
@@ -66,8 +66,23 @@ try {
     app.use(express.static(path.join(__dirname, 'public')));
     console.log('[App] Static file directory configured.');
 
-    // --- 9. WhatsApp Client Initialization (Temporarily Disabled) ---
-    console.log('[WhatsApp] Initialization skipped for debugging.');
+    // --- 9. WhatsApp Client Initialization ---
+    console.log('[WhatsApp] Initializing WhatsApp connection...');
+    connectToWhatsApp((sock) => {
+        console.log('[WhatsApp] Connection successful. Socket is ready.');
+        app.set('whatsappClient', sock);
+
+        // Set a flag for the login route to detect fresh authentications
+        sock.ev.on('creds.update', (update) => {
+            if (update.me) {
+                 console.log('[WhatsApp] Authentication successful. Setting flag.');
+                 app.set('waJustAuthenticated', Date.now());
+            }
+        });
+
+    }).catch(err => {
+        console.error('[WhatsApp] Failed to initialize WhatsApp connection:', err);
+    });
 
     // --- 10. Routes ---
     app.use('/admin', adminRoutes);
