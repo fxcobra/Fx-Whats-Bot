@@ -258,21 +258,53 @@ const handleMessage = async (message) => {
 
         // --- Definitive Logic Flow ---
 
-        // 1. Check for an active order conversation in the database.
-        console.log(`[CONVO_CHECK] Searching for active order for ${chatId}...`);
+        const state = userStates.get(chatId);
+
+        // 1. Always allow universal commands, regardless of state.
+        if (lowerCaseText === 'menu' || lowerCaseText === 'start') {
+            await showMainMenu(chatId);
+            return;
+        }
+        if (lowerCaseText === 'back' || lowerCaseText === 'go back') {
+            await handleBackNavigation(chatId, state);
+            return;
+        }
+        if (lowerCaseText === 'help') {
+            try {
+                const help = await Help.findOneOrCreate();
+                await safeSendMessage(chatId, { text: help.content });
+            } catch (error) {
+                console.error('Error fetching help message:', error);
+                await safeSendMessage(chatId, { text: '🚨 Sorry, I could not retrieve the help message at this time.' });
+            }
+            return;
+        }
+
+        // 2. If the user is in a specific menu state, handle that.
+        if (state) {
+            switch (state.step) {
+                case 'service_selection':
+                    await handleServiceSelection(chatId, state, text);
+                    break;
+                case 'order_confirmation':
+                    await handleOrderConfirmation(chatId, state, text, message);
+                    break;
+                default:
+                    await showMainMenu(chatId, "🤔 Sorry, I got a bit lost. Let's start over from the main menu.");
+                    break;
+            }
+            return; // End processing after state handling
+        }
+
+        // 3. If no state and no universal command, check for an active order to reply to.
+        console.log(`[CONVO_CHECK] No state. Searching for active order for ${chatId}...`);
         const activeOrder = await Order.findOne({
-            userId: chatId, // Corrected from customer_whatsapp
-            status: { $in: ['pending', 'processing', 'awaiting_reply', 'confirmed'] } 
+            userId: chatId,
+            status: { $in: ['pending', 'processing', 'awaiting_reply', 'confirmed'] }
         }).sort({ createdAt: -1 });
 
         if (activeOrder) {
-            console.log(`[CONVO_CHECK] Active order found (ID: ${activeOrder._id}, Status: ${activeOrder.status}). Treating as reply.`);
-        } else {
-            console.log(`[CONVO_CHECK] No active order found. Proceeding with menu logic.`);
-        }
-
-        if (activeOrder) {
-            // If an order is active, we are in 'conversation mode'.
+            console.log(`[CONVO_CHECK] Active order found (ID: ${activeOrder._id}). Treating as reply.`);
             if (['close', 'end', 'done'].includes(lowerCaseText)) {
                 await Order.findByIdAndUpdate(activeOrder._id, { $set: { status: 'completed' } });
                 await safeSendMessage(chatId, { text: '✅ Conversation closed.' });
@@ -283,60 +315,12 @@ const handleMessage = async (message) => {
                 });
                 await safeSendMessage(chatId, { text: `✅ Message received. (Type 'close' to end)` });
             }
-            userStates.delete(chatId);
-            return; // IMPORTANT: Stop all further processing.
+            return; // End processing after conversation handling
         }
 
-        // 2. If NO active order exists, proceed with menu navigation logic.
-        const state = userStates.get(chatId);
-
-        // 3. If not in a conversation, proceed with normal menu navigation.
-        // This block will now only be reached if the user has no active orders, or is actively creating a new one.
-
-
-
-        // 3. Handle 'back' navigation
-        if (lowerCaseText === 'back' || lowerCaseText === 'go back') {
-            await handleBackNavigation(chatId, state);
-            return;
-        }
-
-        // 4. Handle 'help' command
-        if (lowerCaseText === 'help') {
-            try {
-                const help = await Help.findOneOrCreate();
-                await safeSendMessage(chatId, { text: help.content });
-            } catch (error) {
-                console.error('Error fetching help message:', error);
-                                await safeSendMessage(chatId, { text: '🚨 Sorry, I could not retrieve the help message at this time.' });
-            }
-            return;
-        }
-
-        // 5. Handle 'menu' command to always show main menu
-        if (lowerCaseText === 'menu' || lowerCaseText === 'start') {
-            await showMainMenu(chatId);
-            return;
-        }
-
-        // 5. Handle state-based navigation
-        if (state) {
-            switch (state.step) {
-                case 'service_selection':
-                    await handleServiceSelection(chatId, state, text);
-                    break;
-                                case 'order_confirmation':
-                    await handleOrderConfirmation(chatId, state, text, message);
-                    break;
-                default:
-                    // If state is unknown, show main menu
-                    await showMainMenu(chatId, "🤔 Sorry, I got a bit lost. Let's start over from the main menu.");
-                    break;
-            }
-        } else {
-            // 6. Default to main menu if no state
-            await showMainMenu(chatId);
-        }
+        // 4. If nothing else, show the main menu.
+        console.log(`[CONVO_CHECK] No state and no active order. Showing main menu.`);
+        await showMainMenu(chatId);
     } catch (error) {
         console.error('--- FATAL ERROR in handleMessage ---');
         console.error(error);
